@@ -50,8 +50,13 @@ licsar:
     descending: 155D_02484_191814
 
 download:
-  max_gb_per_frame: 80          # pre-approved cap; stop and ask above this
+  # AOI-clipped download (scripts/download.py) instead of LiCSBAS01 full frames:
+  # full frames would be ~450 GB (asc) + ~175 GB (desc). Output layout matches LiCSBAS01.
+  max_gb_per_frame: 80          # pre-approved cap (on-disk size); stop and ask above this
   get_gacos: true
+  n_parallel: 6                 # concurrent remote reads
+  gacos_margin_deg: 0.05        # GACOS clipped with margin; LiCSBAS03op warps it to the GEOC grid
+  retry_missing: false          # re-check ifgs/epochs previously recorded as unavailable
 
 # --- LiCSBAS (Stage 3) -----------------------------------------------------------
 licsbas:

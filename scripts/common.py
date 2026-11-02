@@ -93,6 +93,20 @@ def frame_polygon(cfg: dict, frame: str):
     return Polygon(list(zip(v[0::2], v[1::2])))
 
 
+def update_notes(cfg: dict, section: str, body: str) -> None:
+    """Replace (or append) an auto-generated section in docs/processing_notes.md."""
+    f = path(cfg, "docs") / "processing_notes.md"
+    text = f.read_text(encoding="utf-8") if f.exists() else "# Processing notes\n"
+    start, end = f"<!-- auto:{section} -->", f"<!-- /auto:{section} -->"
+    block = f"{start}\n{body.rstrip()}\n{end}"
+    if start in text and end in text:
+        pre, rest = text.split(start, 1)
+        text = pre + block + rest.split(end, 1)[1]
+    else:
+        text = text.rstrip() + "\n\n" + block + "\n"
+    f.write_text(text, encoding="utf-8")
+
+
 def aoi_box(cfg: dict):
     from shapely.geometry import box
 
