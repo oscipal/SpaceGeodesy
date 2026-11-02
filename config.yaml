@@ -45,9 +45,9 @@ licsar:
   base_url: https://gws-access.jasmin.ac.uk/public/nceo_geohazards/LiCSAR_products
   candidate_tracks: [16, 155]   # from earlier studies; verified in Stage 1
   neighbour_tracks: []          # extra tracks to search if a geometry has poor coverage
-  frames:                       # TODO Stage 1
-    ascending: null
-    descending: null
+  frames:                       # set by scripts/find_frames.py
+    ascending: 016A_02504_162118
+    descending: 155D_02484_191814
 
 download:
   max_gb_per_frame: 80          # pre-approved cap; stop and ask above this
