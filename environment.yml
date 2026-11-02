@@ -1,0 +1,37 @@
+name: svartsengi-insar
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  # core
+  - gdal
+  - numpy
+  - scipy
+  - h5py
+  - xarray
+  - rioxarray
+  - netcdf4
+  - matplotlib
+  - pandas
+  - pyyaml
+  - requests
+  - tqdm
+  - pyproj
+  - shapely
+  # LiCSBAS requirements (comet-licsar/LiCSBAS: LiCSBAS_requirements.txt)
+  - astropy
+  - beautifulsoup4
+  - psutil
+  - statsmodels
+  - lapack
+  - bottleneck
+  - colorcet
+  - cmcrameri
+  # visualisation (Stage 5)
+  - streamlit
+  - folium
+  - streamlit-folium
+  - plotly
+  - cartopy
+  - contextily
+  - matplotlib-scalebar

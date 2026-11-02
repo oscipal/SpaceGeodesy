@@ -1,0 +1,82 @@
+# Single source of parameters for the Svartsengi InSAR pipeline.
+# Scripts read everything from here; nothing is hard-coded.
+# Values marked TODO are filled by the stage named next to them.
+
+project: svartsengi-insar
+
+paths:
+  data: data              # raw LiCSAR downloads + LiCSBAS working dirs (git-ignored)
+  results: results
+  figures: figures
+  logs: logs
+  docs: docs
+
+# --- Locations (approximate, from the project plan) -------------------------
+sites:
+  svartsengi_uplift_centre: {lat: 63.88, lon: -22.43}
+  grindavik:                {lat: 63.84, lon: -22.43}
+  sundhnukur_crater_row:    {lat_min: 63.87, lat_max: 63.90, lon_min: -22.40, lon_max: -22.35}
+
+# Processing AOI (clip box for LiCSBAS step 05).
+# Extended north-east from the plan's original box (lon -22.70..-22.15, lat 63.75..64.00):
+# every edge of that box was < 15 km from the uplift centre, so it had no room for a
+# stable reference area. The extension reaches stable ground towards Vogar/Hafnarfjordur.
+aoi:
+  lon_min: -22.70
+  lon_max: -21.95
+  lat_min: 63.75
+  lat_max: 64.05
+
+# Areas with their own deformation / decorrelation: kept in the data, excluded from
+# reference-point selection, outlined in figures. Boxes are approximate; refine later.
+exclusion_zones:
+  fagradalsfjall:  {lon_min: -22.33, lon_max: -22.18, lat_min: 63.85, lat_max: 63.93, note: "2021-2023 dikes and lava fields"}
+  sundhnukur_grindavik: {lon_min: -22.50, lon_max: -22.30, lat_min: 63.82, lat_max: 63.92, note: "dikes and lava since Nov 2023"}
+  krysuvik:        {lon_min: -22.15, lon_max: -21.95, lat_min: 63.85, lat_max: 63.95, note: "Krysuvik system has its own unrest"}
+
+# --- Time window --------------------------------------------------------------
+time:
+  start: 2020-01-01
+  end: null               # null = latest available acquisition
+  download_chunk: yearly  # download in yearly chunks so failures don't restart everything
+
+# --- LiCSAR frames (Stage 1: scripts/find_frames.py) ------------------------
+licsar:
+  base_url: https://gws-access.jasmin.ac.uk/public/nceo_geohazards/LiCSAR_products
+  candidate_tracks: [16, 155]   # from earlier studies; verified in Stage 1
+  neighbour_tracks: []          # extra tracks to search if a geometry has poor coverage
+  frames:                       # TODO Stage 1
+    ascending: null
+    descending: null
+
+download:
+  max_gb_per_frame: 80          # pre-approved cap; stop and ask above this
+  get_gacos: true
+
+# --- LiCSBAS (Stage 3) -----------------------------------------------------------
+licsbas:
+  n_look: 1                     # ~100 m pixels
+  gacos: true                   # disabled per frame if GACOS coverage is incomplete
+  mask: false                   # step 04op
+  clip: true                    # step 05op, uses aoi above
+  reference_point: null         # TODO Stage 3: {lat, lon}, >= 15 km from uplift centre, outside exclusion_zones
+  # thresholds: null = LiCSBAS defaults; tune per period only with documented reason
+  thresholds:
+    coh_thre: null              # step 11 coherence threshold
+    unw_thre: null              # step 11 unwrapped-fraction threshold
+    loop_thre: null             # step 12 loop closure threshold (rad)
+  filter:                       # step 16
+    filtwidth_km: null
+    filtwidth_yr: null
+
+# --- Post-processing (Stage 4) --------------------------------------------------
+postprocess:
+  ts_window_px: 3               # averaging window for point time series
+  extra_points: []              # [{name: ..., lat: ..., lon: ...}]
+  events_csv: config/events.csv
+
+# --- GNSS (Stage 6) --------------------------------------------------------------
+gnss:
+  source: ngl                   # Nevada Geodetic Laboratory (not final)
+  search_radius_km: 15
+  stations: []                  # TODO Stage 6: verified NGL station IDs
