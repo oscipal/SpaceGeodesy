@@ -17,6 +17,10 @@ RUN git clone https://github.com/comet-licsar/LiCSBAS /opt/LiCSBAS \
  && git -C /opt/LiCSBAS checkout "$LICSBAS_REF" \
  && chmod +x /opt/LiCSBAS/bin/*
 
+# Memory-layout patch for step 12 (see docker/patch_licsbas.sh); results unchanged
+COPY docker/patch_licsbas.sh /tmp/patch_licsbas.sh
+RUN bash /tmp/patch_licsbas.sh
+
 ENV LICSBAS_DIR=/opt/LiCSBAS \
     PATH=/opt/LiCSBAS/bin:$PATH \
     PYTHONPATH=/opt/LiCSBAS/LiCSBAS_lib
