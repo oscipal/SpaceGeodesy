@@ -25,6 +25,9 @@ ENV LICSBAS_DIR=/opt/LiCSBAS \
     PATH=/opt/LiCSBAS/bin:$PATH \
     PYTHONPATH=/opt/LiCSBAS/LiCSBAS_lib
 
+# LiCSBAS work dir; a new named volume mounted here inherits this ownership
+RUN mkdir -p /vol && chown $MAMBA_USER:$MAMBA_USER /vol
+
 WORKDIR /work
 USER $MAMBA_USER
 CMD ["make", "help"]
