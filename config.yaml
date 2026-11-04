@@ -61,10 +61,19 @@ download:
 # --- LiCSBAS (Stage 3) -----------------------------------------------------------
 licsbas:
   n_look: 1                     # ~100 m pixels
-  gacos: true                   # disabled per frame if GACOS coverage is incomplete
+  gacos: true                   # step 03op; GACOS complete for all epochs of both frames (Stage 2)
   mask: false                   # step 04op
-  clip: true                    # step 05op, uses aoi above
-  reference_point: null         # TODO Stage 3: {lat, lon}, >= 15 km from uplift centre, outside exclusion_zones
+  clip: false                   # step 05op not needed: download.py already clips to the AOI
+  n_para: 2                     # LiCSBAS workers; each needs ~1.5-2.5 GB in step 13 (12 workers were OOM-killed in a 7.6 GB Docker VM and step 13 hung)
+  skip_pngs: true               # skip per-loop/per-ifg PNGs in steps 12, 13, 16 (tens of thousands); summary QC PNGs are kept
+  # Common reference window for both frames. null/auto = chosen by run_licsbas.py from
+  # coherence; to fix it yourself: {lat: .., lon: .., window_px: 5, source: manual}
+  reference_point: {lat: 64.0458, lon: -22.0243, window_px: 5, source: auto, mean_coh: {016A_02504_162118: 0.62, 155D_02484_191814: 0.638}, distance_km: 27.1}  # auto-selected by run_licsbas.py; set source: manual to override
+  reference_selection:
+    window_px: 5                # 5 x 5 px = 500 m
+    min_distance_km: 24         # from svartsengi_uplift_centre; 15 km (plan minimum) gave a town window at 15.3 km, 24 km cuts reference contamination ~3x at equal coherence
+    min_unw_fraction: 0.95      # every window pixel unwrapped in >= 95 % of ifgs (after step 11)
+    exclusion_buffer_deg: 0.01  # keep this far from exclusion_zones
   # thresholds: null = LiCSBAS defaults; tune per period only with documented reason
   thresholds:
     coh_thre: null              # step 11 coherence threshold
