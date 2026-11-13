@@ -303,8 +303,33 @@ def phase_b(cfg, frame, rp, force=False) -> Path:
         print(f"[{frame}] phase B up to date", flush=True)
         return ts, area
     print(f"[{frame}] reference area (x1:x2/y1:y2) {area}", flush=True)
-    run(["bash", write_batch(cfg, wd, "12", "16").name], wd, path(cfg, "logs") / f"licsbas_{frame}_12_16.log")
+    # Resumable in three parts; .phaseB_progress holds "<key> <last finished part>".
+    # Step 13 takes ~1 day on this machine and stores each finished patch, so after an
+    # interruption (sleep, Docker restart) it continues with --load_patches.
+    log = path(cfg, "logs") / f"licsbas_{frame}_12_16.log"
+    prog = wd / ".phaseB_progress"
+    done = prog.read_text().split() if prog.exists() else []
+    done = done[1] if len(done) == 2 and done[0] == key and not force else ""
+    if done not in ("12", "13"):
+        run(["bash", write_batch(cfg, wd, "12", "12").name], wd, log)
+        for f in ("cum", "vel", "vconst"):          # stale patches from an older step 13
+            (ts / "results" / f).unlink(missing_ok=True)
+        prog.write_text(f"{key} 12")
+        done = "12"
+    if done == "12":
+        bv = batch_vars(cfg, "13", "13")
+        cmd = ["LiCSBAS13_sb_inv.py", "-d", geocml(cfg), "--load_patches"]
+        if bv["p13_mem_size"]:
+            cmd += ["--mem_size", bv["p13_mem_size"]]
+        if bv["n_para"]:
+            cmd += ["--n_para", bv["n_para"]]
+        if cfg["licsbas"].get("skip_pngs"):
+            cmd.append("--nopngs")
+        run(cmd, wd, log)
+        prog.write_text(f"{key} 13")
+    run(["bash", write_batch(cfg, wd, "14", "16").name], wd, log)
     marker.write_text(key)
+    prog.unlink(missing_ok=True)
     return ts, area
 
 
