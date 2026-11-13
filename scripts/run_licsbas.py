@@ -136,6 +136,7 @@ def batch_vars(cfg, start: str, end: str) -> dict:
         "p11_unw_thre": th.get("unw_thre"), "p11_coh_thre": th.get("coh_thre"),
         "p12_loop_thre": th.get("loop_thre"),
         "p16_filtwidth_km": fl.get("filtwidth_km"), "p16_filtwidth_yr": fl.get("filtwidth_yr"),
+        "p13_mem_size": lb.get("mem_size_mb"),
     }
     if int(start) > 10:
         # the template only derives the GACOS/mask dir name while running steps 03-05
@@ -148,7 +149,7 @@ def batch_vars(cfg, start: str, end: str) -> dict:
 
 def result_vars(cfg, start, end) -> dict:
     """batch_vars without options that do not change the numerical results."""
-    return {k: v for k, v in batch_vars(cfg, start, end).items() if not k.endswith("skippngs") and k != "n_para"}
+    return {k: v for k, v in batch_vars(cfg, start, end).items() if not k.endswith("skippngs") and k not in ("n_para", "p13_mem_size")}
 
 
 def write_batch(cfg, wd: Path, start: str, end: str) -> Path:
