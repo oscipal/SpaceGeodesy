@@ -97,6 +97,13 @@ postprocess:
 
 # --- GNSS (Stage 6) --------------------------------------------------------------
 gnss:
-  source: ngl                   # Nevada Geodetic Laboratory (not final)
+  source: ngl                   # Nevada Geodetic Laboratory, daily IGS20 tenv3
   search_radius_km: 15
-  stations: []                  # TODO Stage 6: verified NGL station IDs
+  # All NGL stations within 15 km of the uplift centre with data since 2020, from the NGL
+  # station list (DataHoldings.txt, checked 2026-11-17), nearest first. SKSH and SENG cover
+  # 2020-2026; the others start in Nov 2023 or later.
+  stations: [GRIV, HS02, SKSH, SENG, ORFC, VMOS, AUSV, ELD1, GEVK, NBIO, SUDV, NAMC, FEFC, VOGC]
+  # Reykjavik, 39 km from the centre and 11 km from the InSAR reference (Straumsvik), outside
+  # the InSAR area; all stations are taken relative to it.
+  reference_station: REYK
+  step_window_days: 15          # +- days for fitting antenna-change offsets
