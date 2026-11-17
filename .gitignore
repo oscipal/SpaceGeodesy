@@ -5,3 +5,4 @@ figures/qc/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+figures/preview/
