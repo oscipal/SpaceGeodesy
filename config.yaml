@@ -13,7 +13,7 @@ paths:
 
 # --- Locations (approximate, from the project plan) -------------------------
 sites:
-  svartsengi_uplift_centre: {lat: 63.88, lon: -22.43}
+  svartsengi_uplift_centre: {lat: 63.868, lon: -22.439}  # peak of the decomposed vertical in 3 inflation periods (preview, 2026-11-15); was 63.88, -22.43
   grindavik:                {lat: 63.84, lon: -22.43}
   sundhnukur_crater_row:    {lat_min: 63.87, lat_max: 63.90, lon_min: -22.40, lon_max: -22.35}
 
@@ -70,7 +70,7 @@ licsbas:
   skip_pngs: true               # skip per-loop/per-ifg PNGs in steps 12, 13, 16 (tens of thousands); summary QC PNGs are kept
   # Common reference window for both frames. null/auto = chosen by run_licsbas.py from
   # coherence; to fix it yourself: {lat: .., lon: .., window_px: 5, source: manual}
-  reference_point: {lat: 64.0458, lon: -22.0243, window_px: 5, source: auto, mean_coh: {016A_02504_162118: 0.62, 155D_02484_191814: 0.638}, distance_km: 27.1}  # auto-selected by run_licsbas.py; set source: manual to override
+  reference_point: {lat: 64.0458, lon: -22.0243, window_px: 5, source: manual, mean_coh: {016A_02504_162118: 0.62, 155D_02484_191814: 0.638}, distance_km: 27.1}  # auto-selected by run_licsbas.py on 2026-11-02, fixed (manual) so moving the centre does not change it
   reference_selection:
     window_px: 5                # 5 x 5 px = 500 m
     min_distance_km: 24         # from svartsengi_uplift_centre; 15 km (plan minimum) gave a town window at 15.3 km, 24 km cuts reference contamination ~3x at equal coherence
