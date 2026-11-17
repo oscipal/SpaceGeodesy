@@ -15,14 +15,14 @@ Group project for Space Geodesy (ETH Zürich, Geomatics). The full task descript
 | 0 Environment | `env` | Dockerfile, `environment.yml` | done |
 | 1 Find frames | `frames` | `scripts/find_frames.py` | done, see [docs/frames.md](docs/frames.md) |
 | 2 Download | `download` | `scripts/download.py` | done, 3747 + 1591 interferograms (3.5 GB) |
-| 3 LiCSBAS time series | `process` | `scripts/run_licsbas.py` | running (step 13, ascending frame) |
-| 4 Derived products | `post` | `scripts/postprocess.py` | written, not yet run |
-| 5a Viewer | `app` | `app/viewer.py` | not yet written |
-| 5b Report figures | `figures` | `scripts/make_figures.py` | not yet written |
-| 6 GNSS | `gnss` | `scripts/get_gnss.py` | not yet written |
+| 3 LiCSBAS time series | `process` | `scripts/run_licsbas.py` | done, see [docs/processing_notes.md](docs/processing_notes.md) |
+| 4 Derived products | `post` | `scripts/postprocess.py` | done |
+| 5a Viewer | `app` | `app/viewer.py` | done |
+| 5b Report figures | `figures` | `scripts/make_figures.py` | done |
+| 6 GNSS | `gnss` | `scripts/get_gnss.py` | done, 14 NGL stations, see [docs/processing_notes.md](docs/processing_notes.md) |
 
-Until Stage 3 finishes, `scripts/export_quicklook.py` renders a selection of single interferograms
-for a first look (see [Quick look](#quick-look)).
+`scripts/export_quicklook.py` renders a selection of single interferograms for a first look
+(see [Quick look](#quick-look)).
 
 ## Data
 
@@ -52,8 +52,8 @@ GeoTIFF header is off by one pixel, which LiCSBAS would otherwise skip. Details 
   and a patch making step 13 resumable and fixing its patch rows (`docker/patch_licsbas13.py`).
 - About 10 GB of free disk for the image, the downloaded data and the LiCSBAS working files.
 - RAM is the limiting factor for Stage 3. On a 16 GB Windows machine (Docker VM about 7.6 GB),
-  `licsbas.n_para: 2` and `licsbas.mem_size_mb: 600` in `config.yaml` keep step 13 from running out
-  of memory. Step 13 then takes about 22 hours for the ascending frame.
+  `licsbas.n_para: 2` and `licsbas.mem_size_mb: 160` in `config.yaml` keep step 13 from running out
+  of memory. Step 13 then takes about 15 hours for the ascending frame and 1 hour for the descending.
 
 Without Docker, on Linux or macOS: create the environment with
 `micromamba create -n svartsengi -f environment.yml`, clone LiCSBAS at the same commit, run
@@ -74,6 +74,7 @@ container:
 .\dc.ps1 make download  # Stage 2
 .\dc.ps1 make process   # Stage 3
 .\dc.ps1 make post      # Stage 4
+.\dc.ps1 make gnss      # Stage 6
 .\dc.ps1 bash           # shell inside the container
 ```
 
@@ -114,6 +115,31 @@ Each phase is skipped when its outputs exist and the parameters affecting result
 For quick checks of a finished time series, LiCSBAS ships its own interactive viewer,
 `LiCSBAS_plot_ts.py`.
 
+### Viewer and report figures
+
+```powershell
+.\dc.ps1 make app       # interactive viewer on http://localhost:8501
+.\dc.ps1 make figures   # PDF + PNG report figures in figures/report/
+```
+
+The viewer shows velocity, cumulative displacement (since the first acquisition, or between two
+chosen dates; vertical, east–west or line of sight), coherence and the LiCSBAS mask on an OpenStreetMap, hillshade or satellite
+basemap. Clicking the map plots the time series of that pixel (line of sight, vertical and
+east–west) with the dated events, optionally filtered, and offers it as CSV. It only reads the
+Stage 4 cubes in `results/cubes/` and the Stage 6 GNSS series: GNSS stations (triangles on the map) can be
+overlaid on all three time-series panels. The "Animation" view plays the
+cumulative displacement since January 2020 epoch by epoch (play, pause, speed, slider), with the
+uplift-centre curve below. Displacement and velocity use one fixed colour scale for every layer,
+date and frame (±700 mm and ±260 mm/yr, from `viz.fixed_limits`, cached in
+`results/cubes/colour_limits.json`).
+
+The report figures are sized for a two-column report: study area, line-of-sight velocity,
+vertical and east–west velocity, vertical displacement per inflation episode, the time series at
+the uplift centre, InSAR vs GNSS and the uplift per episode. `make figures` also writes
+`anim_vertical.gif` (vertical displacement since January 2020, one frame per acquisition, 7.5 MB). Colours: cmcrameri
+`vik` for displacement and velocity; series and event colours checked for colour-vision
+deficiency (`scripts/viz.py`).
+
 ### Quick look
 
 ```powershell
@@ -136,6 +162,7 @@ files over HTTP, so serve the folder, e.g. `python -m http.server`, rather than 
 | `results/licsbas/<frame>/` | LiCSBAS `cum.h5`, `cum_filt.h5`, result rasters (re-referenced) |
 | `results/cubes/`, `results/geotiff/` | NetCDF cubes and GeoTIFFs (Stage 4) |
 | `results/timeseries/`, `results/episodes.csv` | point time series and uplift per episode (Stage 4) |
+| `results/gnss/` | NGL station list, series relative to REYK (ENU and LOS), InSAR comparison (Stage 6) |
 | `figures/qc/<frame>/` | LiCSBAS quality-control figures |
 | `docs/frames.md`, `docs/processing_notes.md` | per-stage summaries, written by the scripts |
 | `logs/` | download and LiCSBAS logs |
