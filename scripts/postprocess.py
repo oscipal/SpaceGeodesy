@@ -102,6 +102,48 @@ def export_geotiffs(cfg, ds: xr.Dataset, name: str) -> int:
 
 
 # ------------------------------------------------------------ decomposition
+def abrupt_events(cfg) -> pd.DatetimeIndex:
+    """Dates of dikes and eruptions (abrupt displacement), from config/events.csv."""
+    ev = pd.read_csv(path(cfg, "results").parent / cfg["postprocess"]["events_csv"], parse_dates=["date"])
+    return pd.DatetimeIndex(sorted(ev.loc[ev.type.isin(["dike", "eruption"]), "date"]))
+
+
+def event_aware_weights(ta: pd.DatetimeIndex, td: pd.DatetimeIndex, events: pd.DatetimeIndex, max_gap_days=24):
+    """Indices and weights to bring ascending epochs ta to descending dates td without mixing
+    acquisitions from before and after a dike or eruption.
+
+    Within one interval between events: linear interpolation between the bracketing ascending
+    epochs, or linear extrapolation from the two nearest ones when the descending date lies beyond
+    the last (or before the first) ascending epoch of that interval; one epoch only: nearest.
+    An acquisition on the day of an event counts as before it (most events started in the
+    afternoon or evening; times are not used). Plain linear interpolation across events put part of
+    each co-eruptive drop into the first epoch after it and biased the episode uplift low.
+    Dates without an ascending epoch of the same interval within max_gap_days get w = nan.
+    """
+    seg = lambda t: np.searchsorted(events.values, t.normalize().values, side="left")  # noqa: E731
+    sa, sd = seg(ta), seg(td)
+    i0 = np.zeros(len(td), int)
+    i1 = np.zeros(len(td), int)
+    w = np.full(len(td), np.nan)
+    for k, (t, s) in enumerate(zip(td, sd)):
+        idx = np.where(sa == s)[0]
+        if not len(idx) or np.min(np.abs((ta[idx] - t).days)) > max_gap_days:
+            continue
+        before, after = idx[ta[idx] <= t], idx[ta[idx] >= t]
+        if len(before) and len(after):
+            p, q = before[-1], after[0]
+        elif len(idx) >= 2:
+            p, q = (idx[-2], idx[-1]) if len(before) else (idx[0], idx[1])
+        else:
+            i0[k] = i1[k] = idx[0]
+            w[k] = 0.0
+            continue
+        span = (ta[q] - ta[p]).days
+        i0[k], i1[k] = p, q
+        w[k] = 0.0 if span == 0 else (t - ta[p]).days / span
+    return i0, i1, w
+
+
 def decompose(cfg, asc: xr.Dataset, desc: xr.Dataset) -> xr.Dataset:
     """Solve los_a = e_a*E + u_a*U, los_d = e_d*E + u_d*U per pixel (north neglected)."""
     # common grid: ascending; descending interpolated (both are 0.001 deg LiCSAR grids)
@@ -113,8 +155,11 @@ def decompose(cfg, asc: xr.Dataset, desc: xr.Dataset) -> xr.Dataset:
     t = d.time.where((d.time >= asc.time[0]) & (d.time <= asc.time[-1]), drop=True)
     d = d.sel(time=t)
     out = {}
+    i0, i1, w = event_aware_weights(pd.to_datetime(asc.time.values), pd.to_datetime(t.values), abrupt_events(cfg))
     for var, sfx in (("cum", ""), ("cum_filt", "_filt")):
-        a = asc[var].interp(time=t, method="linear")
+        av = asc[var].values
+        a = xr.DataArray(av[i0] * (1 - w)[:, None, None] + av[i1] * w[:, None, None],
+                         coords={"time": t.values, "lat": asc.lat, "lon": asc.lon}, dims=("time", "lat", "lon"))
         # re-zero both at the first common epoch
         la = (a - a.isel(time=0)).values
         ld = (d[var] - d[var].isel(time=0)).values
