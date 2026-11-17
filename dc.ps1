@@ -19,5 +19,5 @@ if ($Cmd.Count -gt 0 -and $Cmd[0] -eq "build") {
 if ($Cmd.Count -eq 0) { $Cmd = @("make", "help") }
 
 $tty = if ([Console]::IsInputRedirected) { "-i" } else { "-it" }
-docker run --rm $tty -p 8501:8501 -v "${Root}:/work" -v "${Volume}:/vol" -e LICSBAS_WORK=/vol -w /work $Image @Cmd
+docker run --rm $tty -p 127.0.0.1:8501:8501 -v "${Root}:/work" -v "${Volume}:/vol" -e LICSBAS_WORK=/vol -w /work $Image @Cmd
 exit $LASTEXITCODE
