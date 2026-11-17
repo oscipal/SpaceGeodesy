@@ -48,7 +48,8 @@ GeoTIFF header is off by one pixel, which LiCSBAS would otherwise skip. Details 
 
 - Docker (Docker Desktop on Windows or macOS). The image contains Python 3.11, GDAL, the packages in
   `environment.yml`, `make`, and the [COMET fork of LiCSBAS](https://github.com/comet-licsar/LiCSBAS)
-  pinned to commit `a145e6c`, with a memory-layout patch for step 12 (`docker/patch_licsbas.sh`).
+  pinned to commit `a145e6c`, with a memory-layout patch for step 12 (`docker/patch_licsbas.sh`)
+  and a patch making step 13 resumable and fixing its patch rows (`docker/patch_licsbas13.py`).
 - About 10 GB of free disk for the image, the downloaded data and the LiCSBAS working files.
 - RAM is the limiting factor for Stage 3. On a 16 GB Windows machine (Docker VM about 7.6 GB),
   `licsbas.n_para: 2` and `licsbas.mem_size_mb: 600` in `config.yaml` keep step 13 from running out
@@ -88,8 +89,10 @@ docker run -d --restart on-failure:3 --name svartsengi-process \
 ```
 
 Progress is in `logs/make_process.out` and `logs/licsbas_<frame>_<steps>.log`. Shutting down or
-restarting the computer stops the run. An interrupted step 13 starts again from its first patch;
-steps that already finished are skipped.
+restarting the computer, or quitting Docker Desktop, stops the run; with the restart policy it
+continues when Docker starts again. Steps that already finished are skipped, and step 13 resumes
+after its last finished patch (`docker/patch_licsbas13.py`; upstream LiCSBAS cannot resume with
+the small patches needed here).
 
 ### What Stage 3 does
 

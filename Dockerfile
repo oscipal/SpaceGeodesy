@@ -21,6 +21,10 @@ RUN git clone https://github.com/comet-licsar/LiCSBAS /opt/LiCSBAS \
 COPY docker/patch_licsbas.sh /tmp/patch_licsbas.sh
 RUN bash /tmp/patch_licsbas.sh
 
+# Resumable step 13 with small patches, no patches past the last row (see docker/patch_licsbas13.py)
+COPY docker/patch_licsbas13.py /tmp/patch_licsbas13.py
+RUN /opt/conda/bin/python /tmp/patch_licsbas13.py
+
 ENV LICSBAS_DIR=/opt/LiCSBAS \
     PATH=/opt/LiCSBAS/bin:$PATH \
     PYTHONPATH=/opt/LiCSBAS/LiCSBAS_lib
