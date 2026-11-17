@@ -81,6 +81,10 @@ licsbas:
     coh_thre: null              # step 11 coherence threshold
     unw_thre: null              # step 11 unwrapped-fraction threshold
     loop_thre: null             # step 12 loop closure threshold (rad)
+    n_ifg_noloop_thre: 50       # step 15: mask pixels with more ifgs without a closed loop than this. LiCSBAS
+                                # default = (ifgs without any loop in the network) + 1 = 1 here, which masked 21 % (asc)
+                                # / 39 % (desc) incl. the uplift centre, where only ~5 of ~3100 ifgs lack a loop;
+                                # 50 is the C-band value suggested in LiCSBAS15_mask_ts.py
   filter:                       # step 16
     filtwidth_km: null
     filtwidth_yr: null
