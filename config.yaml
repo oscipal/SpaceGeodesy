@@ -13,7 +13,7 @@ paths:
 
 # --- Locations (approximate, from the project plan) -------------------------
 sites:
-  svartsengi_uplift_centre: {lat: 63.868, lon: -22.439}  # peak of the decomposed vertical in 3 inflation periods (preview, 2026-11-15); was 63.88, -22.43
+  svartsengi_uplift_centre: {lat: 63.866, lon: -22.458}  # peak of the decomposed vertical (full resolution, 1 km smoothing), mean of 2020, Jun-Aug 2024, Dec 2024-Mar 2025 inflation; was 63.88, -22.43 (plan), 63.868, -22.439 (preview)
   grindavik:                {lat: 63.84, lon: -22.43}
   sundhnukur_crater_row:    {lat_min: 63.87, lat_max: 63.90, lon_min: -22.40, lon_max: -22.35}
 
