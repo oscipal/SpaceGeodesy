@@ -135,6 +135,7 @@ def batch_vars(cfg, start: str, end: str) -> dict:
         "do05op_clip": "n",
         "p11_unw_thre": th.get("unw_thre"), "p11_coh_thre": th.get("coh_thre"),
         "p12_loop_thre": th.get("loop_thre"),
+        "p15_n_ifg_noloop_thre": th.get("n_ifg_noloop_thre"),
         "p16_filtwidth_km": fl.get("filtwidth_km"), "p16_filtwidth_yr": fl.get("filtwidth_yr"),
         "p13_mem_size": lb.get("mem_size_mb"),
     }
@@ -177,7 +178,9 @@ def phase_a(cfg, frame, force=False) -> Path:
     if cfg["licsbas"].get("gacos") and man.get("missing_gacos"):
         print(f"[{frame}] WARNING GACOS missing for {len(man['missing_gacos'])} epochs: "
               f"{sorted(man['missing_gacos'])[:20]} ...", flush=True)
-    key = params_hash({"v": result_vars(cfg, "02", "11"), "n_ifg": len(list((wd / "GEOC").glob("2*_2*")))})
+    # p15_* (masking) cannot affect steps 02-11; left out so changing it keeps phase A (and steps 12-13)
+    rv = {k: v for k, v in result_vars(cfg, "02", "11").items() if not k.startswith("p15_")}
+    key = params_hash({"v": rv, "n_ifg": len(list((wd / "GEOC").glob("2*_2*")))})
     marker = wd / ".phaseA"
     ts = wd / f"TS_{geocml(cfg)}"
     if not force and marker.exists() and marker.read_text() == key and (ts / "info/11bad_ifg.txt").exists():
@@ -296,12 +299,20 @@ def phase_b(cfg, frame, rp, force=False) -> Path:
     wd = workdir(cfg, frame)
     ts = wd / f"TS_{geocml(cfg)}"
     area = write_120ref(cfg, frame, rp)
-    key = params_hash({"v": result_vars(cfg, "12", "16"), "ref": area,
-                       "a": (wd / ".phaseA").read_text()})
-    marker = wd / ".phaseB"
+    rv, a = result_vars(cfg, "12", "16"), (wd / ".phaseA").read_text()
+    key = params_hash({"v": rv, "ref": area, "a": a})
+    # steps 12-13 (a day of computing) depend only on these; step 14-16 options may change on their own
+    key13 = params_hash({"v": {k: v for k, v in rv.items() if not k.startswith(("p14_", "p15_", "p16_"))},
+                         "ref": area, "a": a})
+    marker, marker13 = wd / ".phaseB", wd / ".phaseB13"
     if not force and marker.exists() and marker.read_text() == key and (ts / "cum_filt.h5").exists():
         print(f"[{frame}] phase B up to date", flush=True)
         return ts, area
+    if marker.exists() and not marker13.exists():
+        # runs finished before .phaseB13 existed: their marker hashed all variables without the p15 ones
+        legacy = params_hash({"v": {k: v for k, v in rv.items() if not k.startswith("p15_")}, "ref": area, "a": a})
+        if marker.read_text() == legacy:
+            marker13.write_text(key13)
     print(f"[{frame}] reference area (x1:x2/y1:y2) {area}", flush=True)
     # Resumable in three parts; .phaseB_progress holds "<key> <last finished part>".
     # Step 13 takes ~1 day on this machine and stores each finished patch, so after an
@@ -311,13 +322,17 @@ def phase_b(cfg, frame, rp, force=False) -> Path:
     log = path(cfg, "logs") / f"licsbas_{frame}_12_16.log"
     prog = wd / ".phaseB_progress"
     done = prog.read_text().split() if prog.exists() else []
-    done = done[1] if len(done) == 2 and done[0] == key and not force else ""
+    done = done[1] if len(done) == 2 and done[0] == key13 and not force else ""
+    if not force and marker13.exists() and marker13.read_text() == key13 and (ts / "cum.h5").exists():
+        done = "13"
+        print(f"[{frame}] steps 12-13 up to date, redoing 14-16", flush=True)
     if done not in ("12", "13"):
         run(["bash", write_batch(cfg, wd, "12", "12").name], wd, log)
         for f in ("cum", "vel", "vintercept", "resid_rms", "n_gap", "n_ifg_noloop", "maxTlen",
                   "gap_patches"):                   # stale patches from an older step 13
             (ts / "results" / f).unlink(missing_ok=True)
-        prog.write_text(f"{key} 12")
+        marker13.unlink(missing_ok=True)
+        prog.write_text(f"{key13} 12")
         done = "12"
     if done == "12":
         bv = batch_vars(cfg, "13", "13")
@@ -330,7 +345,8 @@ def phase_b(cfg, frame, rp, force=False) -> Path:
             cmd.append("--nopngs")
         os.environ["LICSBAS13_CUM_IN_MEMORY"] = "1"   # resumable with small patches
         run(cmd, wd, log)
-        prog.write_text(f"{key} 13")
+        prog.write_text(f"{key13} 13")
+        marker13.write_text(key13)
     run(["bash", write_batch(cfg, wd, "14", "16").name], wd, log)
     marker.write_text(key)
     prog.unlink(missing_ok=True)
