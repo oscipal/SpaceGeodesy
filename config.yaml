@@ -65,8 +65,8 @@ licsbas:
   mask: false                   # step 04op
   clip: false                   # step 05op not needed: download.py already clips to the AOI
   n_para: 2                     # LiCSBAS workers (12 workers were OOM-killed in the 7.6 GB Docker VM)
-  mem_size_mb: 600              # step 13 patch budget; its gap/loop count needs ~n_loop x n_pixel x 8 B per worker
-                                # (27k loops: 6.7 GB at the default auto size, OOM again), 600 MB gives ~12-row patches
+  mem_size_mb: 160              # step 13 patch budget (~8-row patches); its gap/loop count needs ~n_loop x n_pixel x 8 B per worker
+                                # (27k loops: 6.7 GB per worker at the auto size; 3 GB and OOM on land patches at 600 MB / 16 rows)
   skip_pngs: true               # skip per-loop/per-ifg PNGs in steps 12, 13, 16 (tens of thousands); summary QC PNGs are kept
   # Common reference window for both frames. null/auto = chosen by run_licsbas.py from
   # coherence; to fix it yourself: {lat: .., lon: .., window_px: 5, source: manual}
