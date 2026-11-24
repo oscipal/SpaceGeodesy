@@ -30,6 +30,7 @@ from collections import Counter
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from common import CONFIG_PATH, ROOT, load_config, path, update_notes
 
@@ -444,6 +445,44 @@ def bad_list(f: Path) -> list[str]:
     return f.read_text().split() if f.exists() else []
 
 
+def sampling(licsar_dates: list[str], used_dates: list[str], long_gap_days: int = 24) -> dict:
+    """Effective revisit per year: intervals between consecutive epochs used in the time series
+    (6 days with S1A+S1B or S1A+S1C, 12 days with one satellite), plus gaps longer than
+    long_gap_days with whether LiCSAR has epochs inside them (i.e. dropped by LiCSBAS)."""
+    t = pd.to_datetime(used_dates)
+    allt = pd.to_datetime(licsar_dates)
+    dt_days = np.diff(t.values).astype("timedelta64[D]").astype(int)
+    per_year = {}
+    for y in sorted(set(t.year)):
+        sel = t[1:].year == y                    # interval counted in the year of its second epoch
+        d = dt_days[sel]
+        per_year[str(y)] = {"licsar_epochs": int((allt.year == y).sum()), "used_epochs": int((t.year == y).sum()),
+                            "median_days": int(np.median(d)) if len(d) else None,
+                            "n6": int((d <= 6).sum()), "n12": int(((d > 6) & (d <= 12)).sum()),
+                            "n_longer": int((d > 12).sum())}
+    gaps = []
+    for k in np.where(dt_days > long_gap_days)[0]:
+        a, b = t[k], t[k + 1]
+        gaps.append({"from": f"{a:%Y-%m-%d}", "to": f"{b:%Y-%m-%d}", "days": int(dt_days[k]),
+                     "licsar_epochs_inside": int(((allt > a) & (allt < b)).sum())})
+    return {"per_year": per_year, "long_gaps": gaps}
+
+
+def network_gaps(f: Path) -> dict:
+    """Gaps and connected pieces from LiCSBAS info/12network_gap_info.txt (after step 12)."""
+    out = {"gaps": [], "connected": []}
+    if not f.exists():
+        return out
+    for line in f.read_text().splitlines():
+        m = re.fullmatch(r"\s*(\d{8}) (\d{8})\s*", line)
+        if m:
+            out["gaps"].append(f"{m[1]}-{m[2]}")
+        m = re.fullmatch(r"\s*(\d{8}-\d{8}) \(([\d.]+), (\d+)\)\s*", line)
+        if m:
+            out["connected"].append({"span": m[1], "years": float(m[2]), "epochs": int(m[3])})
+    return out
+
+
 def summarise(cfg, frame, ts: Path, res: Path, n_png: int) -> dict:
     import h5py
 
@@ -466,6 +505,7 @@ def summarise(cfg, frame, ts: Path, res: Path, n_png: int) -> dict:
         per_year[y] = {"ifgs": len(ys), "bad11": sum(p in set(bad11) for p in ys),
                        "bad12": sum(p in set(bad12) for p in ys)}
     by_month = Counter(p[9:15] for p in bad)
+    licsar_dates = sorted({d for p in all_ifgs for d in p.split("_")})
     nullify = None
     if (ts / "results/n_nullify_rat").exists() and (lb_ov := (cfg["licsbas"].get("frame_overrides") or {})
                                                     .get(frame, {})).get("nullify"):
@@ -474,6 +514,8 @@ def summarise(cfg, frame, ts: Path, res: Path, n_png: int) -> dict:
                    "over_half": round(float(np.nanmean(rat > 0.5)), 3), "loop_thre": lb_ov.get("loop_thre")}
     return {
         "nullify": nullify,
+        "sampling": sampling(licsar_dates, imdates),
+        "network_gaps": network_gaps(ts / "info/12network_gap_info.txt"),
         "frame": frame, "epochs": len(imdates), "first": imdates[0], "last": imdates[-1],
         "ifgs_total": len(all_ifgs), "ifgs_used": len(all_ifgs) - len(bad),
         "bad11": len(bad11), "bad12": len(bad12),
@@ -535,6 +577,35 @@ def write_notes(cfg, summaries, rp) -> None:
               "setting, compared on 2026-11-24): descending LOS "
               "87 -> 20 mm, east-west 49 -> 28 mm, vertical 39 -> 31 mm. Near the dike the step is still not "
               "recovered (see the known-unreliable values in Stage 4 and 6)."]
+    L += ["", "### Temporal sampling and network gaps", "",
+          "Sentinel-1B failed on 23 December 2021, so the revisit dropped from 6 to 12 days until "
+          "Sentinel-1C joined in 2025. Intervals between consecutive epochs used in the time series, "
+          "counted in the year of the later epoch (LiCSAR epochs = all dates with an interferogram, "
+          "used = after LiCSBAS steps 11-12):"]
+    for s in summaries:
+        sm = s.get("sampling")
+        if not sm:
+            continue
+        L += ["", f"`{s['frame']}`:", "",
+              "| Year | LiCSAR epochs | used epochs | median interval (d) | 6 d | 12 d | longer |",
+              "|---|---|---|---|---|---|---|"]
+        for y, v in sm["per_year"].items():
+            L.append(f"| {y} | {v['licsar_epochs']} | {v['used_epochs']} | {v['median_days']} | {v['n6']} | "
+                     f"{v['n12']} | {v['n_longer']} |")
+        if sm["long_gaps"]:
+            L += ["", "Intervals longer than 24 days: " + "; ".join(
+                f"{g['from']} to {g['to']} ({g['days']} d"
+                + (f", {g['licsar_epochs_inside']} LiCSAR epochs inside dropped)" if g["licsar_epochs_inside"]
+                   else ", no LiCSAR data)") for g in sm["long_gaps"]) + "."]
+        ng = s.get("network_gaps") or {}
+        if ng.get("gaps"):
+            L += ["", f"Network gaps after step 12: {', '.join(ng['gaps'])}. Connected pieces: "
+                  + "; ".join(f"{c['span']} ({c['epochs']} epochs)" for c in ng["connected"])
+                  + ". LiCSBAS step 13 bridges the gaps with its temporal smoothness constraint, so a "
+                  "displacement step inside a gap is not recovered."]
+        elif ng.get("connected"):
+            L += ["", "Network after step 12: fully connected "
+                  f"({ng['connected'][0]['span']}, {ng['connected'][0]['epochs']} epochs)."]
     L += ["", "### Re-referencing", "",
           "LiCSBAS steps 13 and 16 always re-reference `cum`/`vel` to an automatically chosen single "
           "pixel (lowest RMS of cum w.r.t. the median, `info/13ref.txt`), wherever it lies; the "
