@@ -4,6 +4,7 @@
 2 los_velocity        mean LOS velocity, ascending and descending
 3 decomp_velocity     vertical and east-west velocity (linear fit over the common period)
 4 episodes_maps       cumulative vertical displacement in selected inflation episodes
+  episodes_maps_short four of them in one row (4-page report)
 5 centre_timeseries   LOS, vertical and east at the uplift centre with dated events
 6 gnss_comparison     InSAR vs GNSS vertical (only once Stage 6 has written results/gnss/)
 7 episodes_uplift     vertical displacement and rate per episode at the uplift centre
@@ -80,9 +81,21 @@ def overlay(ax, ds, data, lim, cmap=cmc.vik):
 
 
 # ----------------------------------------------------------------------------- figures
+# Label offsets (points) for the GNSS stations in the zoomed study-area panel, chosen by eye so
+# that the names of the clustered stations around the uplift centre do not overlap.
+LABEL_OFFSETS = {"HS02": (-21, 3), "SKSH": (-14, -9), "GRIV": (-9, -10), "SENG": (5, 2), "ORFC": (5, 1),
+                 "AUSV": (5, -5), "VMOS": (-21, -2), "GEVK": (-21, -4), "ELD1": (-8, 5), "NBIO": (5, 1),
+                 "SUDV": (5, -2), "NAMC": (5, 1), "FEFC": (-8, 5)}
+CLUSTER = dict(lon=(-22.57, -22.29), lat=(63.825, 63.925))   # station cluster around the uplift centre
+
+
+def in_view(lon, lat, v):
+    return v["lon"][0] <= lon <= v["lon"][1] and v["lat"][0] <= lat <= v["lat"][1]
+
+
 def fig_study_area(cfg, cubes, out):
     from shapely.geometry import box
-    fig, (a, b) = plt.subplots(1, 2, figsize=(FULL, 3.1), gridspec_kw={"width_ratios": [1, 1.25]})
+    fig, (a, b, c) = plt.subplots(1, 3, figsize=(FULL, 2.45), gridspec_kw={"width_ratios": [1, 1.12, 1.02]})
     # (a) overview: frame footprints and AOI
     polys = {}
     cache = path(cfg, "results") / "frames"
@@ -131,27 +144,46 @@ def fig_study_area(cfg, cubes, out):
     a.yaxis.set_major_locator(MultipleLocator(0.4))
     a.xaxis.set_major_formatter(lambda x, _: f"{abs(x):.0f}°W")
     a.yaxis.set_major_formatter(lambda y, _: f"{y:.1f}°N")
-    a.set_title("(a) LiCSAR frames and area of interest", loc="left")
+    a.set_title("(a) LiCSAR frames", loc="left")
     # (b) AOI detail
     ds = cubes["asc"]
     background(b, cfg, ds)
     for name, z in cfg["exclusion_zones"].items():
         b.add_patch(plt.Rectangle((z["lon_min"], z["lat_min"]), z["lon_max"] - z["lon_min"], z["lat_max"] - z["lat_min"],
                                   fill=False, ec=viz.INK2, lw=0.8, ls="--", zorder=2))
-        b.text(z["lon_min"] + 0.005, z["lat_max"] - 0.004, {"fagradalsfjall": "Fagradalsfjall", "sundhnukur_grindavik": "Sundhnúkur/Grindavík", "krysuvik": "Krýsuvík"}.get(name, name), fontsize=6,
-               va="top", color=viz.INK, zorder=3)
+        # short labels (S/G, F, K), spelled out in the report caption; the full names overlap
+        b.text(z["lon_max"] - 0.005, z["lat_max"] - 0.004, {"fagradalsfjall": "F", "sundhnukur_grindavik": "S/G", "krysuvik": "K"}.get(name, name), fontsize=6.5,
+               ha="right", va="top", color=viz.INK, zorder=3)
     map_axes(b, cfg)
     s, rp = cfg["sites"], cfg["licsbas"]["reference_point"]
-    for lab, (lo, la), dx in (("uplift centre", (s["svartsengi_uplift_centre"]["lon"], s["svartsengi_uplift_centre"]["lat"]), 0.01),
-                             ("Grindavík", (s["grindavik"]["lon"], s["grindavik"]["lat"]), 0.01),
-                             ("reference (Straumsvík)", (rp["lon"], rp["lat"] - 0.012), -0.01)):
-        b.text(lo + dx, la + 0.004, lab, fontsize=6.5, ha="left" if dx > 0 else "right", color=viz.INK, zorder=6)
-    for st in viz.gnss_stations(cfg):
-        b.text(st["lon"] + 0.008, st["lat"], st["id"], fontsize=6, color=viz.INK, zorder=6)
+    b.text(rp["lon"] - 0.01, rp["lat"] - 0.008, "reference\n(Straumsvík)", fontsize=6, ha="right", va="top",
+           color=viz.INK, zorder=6)
+    aoi = dict(lon=(A["lon_min"], A["lon_max"]), lat=(A["lat_min"], A["lat_max"]))
+    for st in viz.gnss_stations(cfg):          # stations outside the zoom panel are named here
+        if in_view(st["lon"], st["lat"], aoi) and not in_view(st["lon"], st["lat"], CLUSTER):
+            b.text(st["lon"] + 0.008, st["lat"], st["id"], fontsize=6, color=viz.INK, zorder=6)
+    b.add_patch(plt.Rectangle((CLUSTER["lon"][0], CLUSTER["lat"][0]), CLUSTER["lon"][1] - CLUSTER["lon"][0],
+                              CLUSTER["lat"][1] - CLUSTER["lat"][0], fill=False, ec=viz.INK, lw=1.0, zorder=4))
+    b.text(CLUSTER["lon"][0], CLUSTER["lat"][0] - 0.004, "(c)", fontsize=6.5, va="top", color=viz.INK, zorder=6)
     b.set_xlim(A["lon_min"], A["lon_max"])
     b.set_ylim(A["lat_min"], A["lat_max"])
-    b.set_title("(b) Study area (hillshade of the LiCSAR DEM)", loc="left")
-    fig.tight_layout()
+    b.set_title("(b) Study area", loc="left")
+    # (c) station cluster around the uplift centre
+    background(c, cfg, ds)
+    map_axes(c, cfg, zoom=CLUSTER)
+    c.xaxis.set_major_locator(plt.MultipleLocator(0.1))
+    c.yaxis.set_major_locator(plt.MultipleLocator(0.025))
+    c.yaxis.set_major_formatter(lambda y, _: f"{y:.3f}°N")
+    for st in viz.gnss_stations(cfg):
+        if in_view(st["lon"], st["lat"], CLUSTER):
+            dx, dy = LABEL_OFFSETS.get(st["id"], (5, 1))
+            c.annotate(st["id"], (st["lon"], st["lat"]), xytext=(dx, dy), textcoords="offset points",
+                       fontsize=5.5, color=viz.INK, zorder=6)
+    g = s["grindavik"]
+    c.annotate("Grindavík", (g["lon"], g["lat"]), xytext=(-12, -9), textcoords="offset points", fontsize=5.5,
+               color=viz.INK, zorder=6)
+    c.set_title("(c) GNSS stations; + uplift centre", loc="left")
+    fig.tight_layout(w_pad=0.6)
     save(fig, out, "fig1_study_area")
 
 
@@ -238,6 +270,39 @@ def fig_episode_maps(cfg, cubes, out):
     save(fig, out, "fig4_episodes_maps")
 
 
+EPISODES_SHORT = [("2020-03-01", "Mar-Apr 2020"), ("2022-05-16", "May-Jul 2022"),
+                  ("2024-05-29", "Jun-Aug 2024"), ("2024-11-20", "Nov 2024-Mar 2025")]
+
+
+def fig_episode_maps_short(cfg, cubes, out):
+    """Four inflation episodes in one row (for the 4-page report): two before and two after the
+    onset of the Sundhnukur activity, each pair with its own colour scale."""
+    d = cubes["dec"]
+    t = pd.to_datetime(d.time.values)
+    ep = pd.read_csv(path(cfg, "results") / "episodes.csv", parse_dates=["first_epoch", "last_epoch"])
+    ep = ep[ep.component == "vertical"]
+    maps = []
+    for start, title in EPISODES_SHORT:
+        r = ep[ep.start_event.str.startswith(start)].iloc[0]
+        i, j = int(np.argmin(abs(t - r.first_epoch))), int(np.argmin(abs(t - r.last_epoch)))
+        maps.append((title, t[i], t[j], viz.masked(d, "up", time=j) - viz.masked(d, "up", time=i)))
+    crop = lambda m: m.sel(lat=slice(ZOOM["lat"][1], ZOOM["lat"][0]), lon=slice(*ZOOM["lon"]))  # noqa: E731
+    fig, axs = plt.subplots(1, 4, figsize=(FULL, 2.35), sharey=True, layout="constrained")
+    for pair in ((0, 1), (2, 3)):
+        lim = viz.sym_limit(np.concatenate([crop(maps[k][3]).values.ravel() for k in pair]))
+        for k in pair:
+            title, ta, tb, m = maps[k]
+            ax = axs[k]
+            background(ax, cfg, d)
+            im = overlay(ax, d, m, lim)
+            map_axes(ax, cfg, zoom=ZOOM, scalebar=(k == 0))
+            ax.xaxis.set_major_locator(plt.MultipleLocator(0.15))
+            ax.set_title(f"({'abcd'[k]}) {title}\n{ta:%Y-%m-%d} to {tb:%Y-%m-%d}", loc="left")
+        cb = fig.colorbar(im, ax=[axs[k] for k in pair], orientation="horizontal", fraction=0.06, aspect=30)
+        cb.set_label("Vertical displacement (mm)")
+    save(fig, out, "fig4_episodes_maps_short")
+
+
 def event_lines(ax, ev, coloured=True, labels=False, min_gap_days=45):
     last = None
     for _, e in ev.iterrows():
@@ -256,7 +321,7 @@ def fig_centre(cfg, cubes, out):
     ts = pd.read_csv(path(cfg, "results") / "timeseries" / "svartsengi_uplift_centre.csv",
                      parse_dates=["date"], index_col="date")
     ev = viz.load_events(cfg)
-    fig, axs = plt.subplots(3, 1, figsize=(FULL, 5.4), sharex=True, gridspec_kw={"height_ratios": [1.1, 1.1, 0.8]})
+    fig, axs = plt.subplots(3, 1, figsize=(FULL, 3.5), sharex=True, gridspec_kw={"height_ratios": [1.1, 1.1, 0.8]})
     a = axs[0]
     event_lines(a, ev, coloured=False)
     for col, g, lab in (("los_asc_mm", "asc", "ascending"), ("los_desc_mm", "desc", "descending")):
@@ -297,9 +362,9 @@ def fig_gnss(cfg, cubes, out):
         return
     st = {s["id"]: s for s in viz.gnss_stations(cfg)}
     k = "SKSH" if "SKSH" in g else next(iter(g))
-    fig = plt.figure(figsize=(FULL, 3.3))
-    ax = fig.add_axes([0.075, 0.15, 0.53, 0.72])
-    bx = fig.add_axes([0.70, 0.15, 0.28, 0.72])
+    fig = plt.figure(figsize=(FULL, 2.75))
+    ax = fig.add_axes([0.075, 0.17, 0.53, 0.70])
+    bx = fig.add_axes([0.70, 0.17, 0.28, 0.70])
     ins = viz.window_series(cubes["asc"], "cum", st[k]["lat"], st[k]["lon"], 1).dropna()
     ins = ins - ins.iloc[0]
     gn = g[k]["los_asc_mm"].dropna()
@@ -321,11 +386,15 @@ def fig_gnss(cfg, cubes, out):
              "up": (viz.INK, "^", "vertical")}
     lim = float(np.nanmax(np.abs(e[["insar_mm", "gnss_mm"]].values))) * 1.05
     bx.plot([-lim, lim], [-lim, lim], "-", lw=0.6, color=viz.MUTED, zorder=0)
+    bad = e.reliability.fillna("") != "" if "reliability" in e else pd.Series(False, index=e.index)
     for comp, (col, mk, lab) in style.items():
-        x = e[e.component == comp]
+        x = e[(e.component == comp) & ~bad]
         rms = float(np.sqrt((x.diff_mm ** 2).mean()))
         bx.plot(x.gnss_mm, x.insar_mm, mk, ms=3, mfc="none", mec=col, mew=0.7,
                 label=f"{lab}: n={len(x)}, RMS {rms:.0f} mm")
+    if bad.any():
+        bx.plot(e[bad].gnss_mm, e[bad].insar_mm, "x", ms=3, color=viz.MUTED, mew=0.7,
+                label=f"known unreliable (n={int(bad.sum())})")
     bx.set_xlim(-lim / 4, lim)
     bx.set_ylim(-lim / 4, lim)
     bx.set_aspect("equal")
@@ -421,7 +490,8 @@ def anim_vertical(cfg, cubes, out, fps=8):
 
 
 FIGS = {"study_area": fig_study_area, "los_velocity": fig_los_velocity, "decomp_velocity": fig_decomp_velocity,
-        "episodes_maps": fig_episode_maps, "centre_timeseries": fig_centre, "gnss_comparison": fig_gnss,
+        "episodes_maps": fig_episode_maps, "episodes_maps_short": fig_episode_maps_short, "centre_timeseries": fig_centre,
+        "gnss_comparison": fig_gnss,
         "episodes_uplift": fig_episode_uplift, "anim_vertical": anim_vertical}
 
 
