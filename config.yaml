@@ -117,3 +117,7 @@ gnss:
   # the InSAR area; all stations are taken relative to it.
   reference_station: REYK
   step_window_days: 15          # +- days for fitting antenna-change offsets
+  outliers:                     # research plan: outliers are removed (robust running median, split at events)
+    window_days: 15
+    k: 5
+    protect_days: 10            # not tested after each dike or eruption (fast real motion)

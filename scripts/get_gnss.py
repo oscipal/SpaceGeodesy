@@ -119,6 +119,32 @@ def remove_steps(df: pd.DataFrame, steps: list, win: int, events: pd.Series) -> 
     return df, notes
 
 
+def remove_outliers(df: pd.DataFrame, events: pd.Series, win: int, k: float,
+                    protect: int = 10) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Set daily values to NaN that differ from the running median (win days, centred) by more than
+    k robust standard deviations (1.4826 x MAD of the differences). The series is split at every dike
+    or eruption first, so no window spans a deflation step and real steps are never removed. The
+    first `protect` days after each event are not tested: the fast motion right after a dike or
+    eruption is real but deviates from a running median."""
+    out = df.copy()
+    n = {}
+    cuts = [df.index[0] - pd.Timedelta(days=1)] + sorted(e for e in events if df.index[0] < e <= df.index[-1]) \
+        + [df.index[-1] + pd.Timedelta(days=1)]
+    for c in ("east_mm", "north_mm", "up_mm"):
+        bad = pd.Series(False, index=df.index)
+        for a, b in zip(cuts[:-1], cuts[1:]):
+            seg = df[c][(df.index >= a) & (df.index < b)].dropna()
+            if len(seg) < win:
+                continue
+            res = seg - seg.rolling(f"{win}D", center=True, min_periods=3).median()
+            s = 1.4826 * float(np.nanmedian(np.abs(res - np.nanmedian(res))))
+            test = res.index > a + pd.Timedelta(days=protect) if a >= df.index[0] else np.ones(len(res), bool)
+            bad.loc[res.index[(np.abs(res) > k * max(s, 0.5)) & test]] = True
+        out.loc[bad, c] = np.nan
+        n[c] = int(bad.sum())
+    return out, n
+
+
 def los_vectors(cubes, lat, lon) -> dict[str, tuple[float, float, float]]:
     out = {}
     for g in ("asc", "desc"):
@@ -239,6 +265,9 @@ def main() -> int:
     ref, ref_notes = remove_steps(ref, steps.get(ref_id, []), win, events)
     step_notes = {ref_id: ref_notes}
     series = {}
+    ol = g.get("outliers", {})
+    big_dates = ev[ev.type.isin(["dike", "eruption"])]["date"]
+    outlier_counts = {}
     for s in ids:
         df = read_tenv3(cfg, s)
         df, step_notes[s] = remove_steps(df, steps.get(s, []), win, events)
@@ -247,7 +276,11 @@ def main() -> int:
         if rel.empty:
             print(f"  {s}: no days in common with {ref_id} after {t0:%Y-%m-%d}", flush=True)
             continue
-        rel = rel - rel.iloc[0]
+        if ol:
+            rel, outlier_counts[s] = remove_outliers(rel, big_dates, int(ol["window_days"]), float(ol["k"]),
+                                                     int(ol.get("protect_days", 10)))
+            outlier_counts[s]["days"] = len(rel)
+        rel = rel - rel.apply(lambda col: col.dropna().iloc[0])      # zero at the first valid day per component
         for c_ in ("e", "n", "u"):
             rel[f"sig_{c_}_mm"] = np.hypot(df[f"sig_{c_}_mm"], ref[f"sig_{c_}_mm"]).reindex(rel.index)
         if sel.at[s, "in_insar_area"]:
@@ -320,6 +353,14 @@ def main() -> int:
     for s, n in step_notes.items():
         for x in n:
             L.append(f"- {s}: {x}")
+    if outlier_counts:
+        L += ["", f"Outliers: daily values more than {ol['k']} robust standard deviations (1.4826 x MAD) from the "
+              f"{ol['window_days']} day running median, computed between consecutive dikes or eruptions so that "
+              f"real steps are kept, are removed per component (the first {ol.get('protect_days', 10)} days after each event are not "
+              "tested, the fast motion there is real):", "",
+              "| Station | Days | East | North | Up |", "|---|---|---|---|---|"]
+        for s, n in outlier_counts.items():
+            L.append(f"| {s} | {n['days']} | {n['east_mm']} | {n['north_mm']} | {n['up_mm']} |")
     L += ["", f"Reference station {ref_id} in IGS20, {rc['span']} (linear + annual fit; 'step' = median "
           "residual 10 days after minus 10 days before each dike or eruption):", "",
           "| Component | Velocity (mm/yr) | Annual amplitude (mm) | Residual std (mm) | Median / max step at events (mm) |",
