@@ -123,8 +123,16 @@ def run(cmd: list[str], cwd: Path, log: Path) -> None:
 
 
 # ------------------------------------------------------------ batch script
-def batch_vars(cfg, start: str, end: str) -> dict:
-    lb, th, fl = cfg["licsbas"], cfg["licsbas"]["thresholds"], cfg["licsbas"]["filter"]
+STEP12_OVERRIDES = {"loop_thre", "nullify"}
+
+
+def batch_vars(cfg, start: str, end: str, frame: str | None = None) -> dict:
+    """Batch-script variables; `frame` applies licsbas.frame_overrides (step 12 only)."""
+    lb, fl = cfg["licsbas"], cfg["licsbas"]["filter"]
+    ov = (lb.get("frame_overrides") or {}).get(frame) or {} if frame else {}
+    if set(ov) - STEP12_OVERRIDES:
+        raise SystemExit(f"frame_overrides.{frame}: only {sorted(STEP12_OVERRIDES)} allowed, got {sorted(ov)}")
+    th = {**lb["thresholds"], **{k: ov[k] for k in ("loop_thre",) if k in ov}}
     v = {
         "start_step": start, "end_step": end,
         "nlook": str(lb["n_look"]),
@@ -139,6 +147,9 @@ def batch_vars(cfg, start: str, end: str) -> dict:
         "p16_filtwidth_km": fl.get("filtwidth_km"), "p16_filtwidth_yr": fl.get("filtwidth_yr"),
         "p13_mem_size": lb.get("mem_size_mb"),
     }
+    if ov.get("nullify"):
+        # only set when used, so the parameter hash of frames without it stays unchanged
+        v["p12_nullify"] = "y"
     if int(start) > 10:
         # the template only derives the GACOS/mask dir name while running steps 03-05
         v["GEOCmldir"] = geocml(cfg)
@@ -148,14 +159,15 @@ def batch_vars(cfg, start: str, end: str) -> dict:
     return {k: ("" if x is None else str(x)) for k, x in v.items()}
 
 
-def result_vars(cfg, start, end) -> dict:
+def result_vars(cfg, start, end, frame=None) -> dict:
     """batch_vars without options that do not change the numerical results."""
-    return {k: v for k, v in batch_vars(cfg, start, end).items() if not k.endswith("skippngs") and k not in ("n_para", "p13_mem_size")}
+    return {k: v for k, v in batch_vars(cfg, start, end, frame).items()
+            if not k.endswith("skippngs") and k not in ("n_para", "p13_mem_size")}
 
 
-def write_batch(cfg, wd: Path, start: str, end: str) -> Path:
+def write_batch(cfg, wd: Path, start: str, end: str, frame=None) -> Path:
     text = TEMPLATE.read_text()
-    for k, val in batch_vars(cfg, start, end).items():
+    for k, val in batch_vars(cfg, start, end, frame).items():
         text, n = re.subn(rf'^{k}=("[^"]*"|\'[^\']*\'|\S*)', f'{k}="{val}"', text, count=1, flags=re.M)
         if n != 1:
             raise SystemExit(f"variable {k} not found in {TEMPLATE}")
@@ -186,6 +198,10 @@ def phase_a(cfg, frame, force=False) -> Path:
     if not force and marker.exists() and marker.read_text() == key and (ts / "info/11bad_ifg.txt").exists():
         print(f"[{frame}] phase A up to date", flush=True)
         return ts
+    # step 12 --nullify keeps the original as *.unw.ori and reads that on later runs; after
+    # steps 02-11 rewrite the .unw files those backups are stale
+    for f in (wd / geocml(cfg)).glob("*/*.unw.ori"):
+        f.unlink()
     run(["bash", write_batch(cfg, wd, "02", "11").name], wd, path(cfg, "logs") / f"licsbas_{frame}_02_11.log")
     (ts / "refstats.npz").unlink(missing_ok=True)
     marker.write_text(key)
@@ -299,7 +315,7 @@ def phase_b(cfg, frame, rp, force=False) -> Path:
     wd = workdir(cfg, frame)
     ts = wd / f"TS_{geocml(cfg)}"
     area = write_120ref(cfg, frame, rp)
-    rv, a = result_vars(cfg, "12", "16"), (wd / ".phaseA").read_text()
+    rv, a = result_vars(cfg, "12", "16", frame), (wd / ".phaseA").read_text()
     key = params_hash({"v": rv, "ref": area, "a": a})
     # steps 12-13 (a day of computing) depend only on these; step 14-16 options may change on their own
     key13 = params_hash({"v": {k: v for k, v in rv.items() if not k.startswith(("p14_", "p15_", "p16_"))},
@@ -327,7 +343,7 @@ def phase_b(cfg, frame, rp, force=False) -> Path:
         done = "13"
         print(f"[{frame}] steps 12-13 up to date, redoing 14-16", flush=True)
     if done not in ("12", "13"):
-        run(["bash", write_batch(cfg, wd, "12", "12").name], wd, log)
+        run(["bash", write_batch(cfg, wd, "12", "12", frame).name], wd, log)
         for f in ("cum", "vel", "vintercept", "resid_rms", "n_gap", "n_ifg_noloop", "maxTlen",
                   "gap_patches"):                   # stale patches from an older step 13
             (ts / "results" / f).unlink(missing_ok=True)
@@ -347,7 +363,7 @@ def phase_b(cfg, frame, rp, force=False) -> Path:
         run(cmd, wd, log)
         prog.write_text(f"{key13} 13")
         marker13.write_text(key13)
-    run(["bash", write_batch(cfg, wd, "14", "16").name], wd, log)
+    run(["bash", write_batch(cfg, wd, "14", "16", frame).name], wd, log)
     marker.write_text(key)
     prog.unlink(missing_ok=True)
     return ts, area
@@ -450,7 +466,14 @@ def summarise(cfg, frame, ts: Path, res: Path, n_png: int) -> dict:
         per_year[y] = {"ifgs": len(ys), "bad11": sum(p in set(bad11) for p in ys),
                        "bad12": sum(p in set(bad12) for p in ys)}
     by_month = Counter(p[9:15] for p in bad)
+    nullify = None
+    if (ts / "results/n_nullify_rat").exists() and (lb_ov := (cfg["licsbas"].get("frame_overrides") or {})
+                                                    .get(frame, {})).get("nullify"):
+        rat = g.read(ts / "results/n_nullify_rat")[land]
+        nullify = {"median": round(float(np.nanmedian(rat)), 3), "p95": round(float(np.nanpercentile(rat, 95)), 3),
+                   "over_half": round(float(np.nanmean(rat > 0.5)), 3), "loop_thre": lb_ov.get("loop_thre")}
     return {
+        "nullify": nullify,
         "frame": frame, "epochs": len(imdates), "first": imdates[0], "last": imdates[-1],
         "ifgs_total": len(all_ifgs), "ifgs_used": len(all_ifgs) - len(bad),
         "bad11": len(bad11), "bad12": len(bad12),
@@ -491,6 +514,27 @@ def write_notes(cfg, summaries, rp) -> None:
         for y, v in s["per_year"].items():
             L.append(f"| {y} | {v['ifgs']} | {v['bad11']} | {v['bad12']} |")
         L.append(f"\nMonths with most rejections: {s['worst_months']}")
+    for s in summaries:
+        nf = s.get("nullify")
+        if not nf:
+            continue
+        L += ["", f"### Deviation from the plan: step 12 for `{s['frame']}`", "",
+              "The plan says to mask the dike-related unwrapping errors through the coherence and loop-closure "
+              "thresholds, not to fix them, and not to tune thresholds globally. With the default loop threshold "
+              "(1.5 rad), step 12 rejected all 10 descending interferograms across the 10 Nov 2023 dike (scene "
+              "loop RMS 2-28 rad) and split the network into three pieces (20231110-20231122, 20231216-20240109), "
+              "so step 13 bridged the dike step with its smoothness constraint and lost it in every later "
+              "descending epoch. The loop errors sit at the dike: 54-59 % of the pixels near it fail to close, "
+              "3-4 % elsewhere. For this frame only (`licsbas.frame_overrides` in config.yaml), step 12 runs with "
+              f"loop threshold {nf['loop_thre']} rad and `--nullify`: pixels whose loops all exceed pi are set to "
+              "NaN in each interferogram instead of dropping the whole interferogram, so the dike zone is still "
+              "masked, but per pixel. The ascending frame keeps the defaults.", "",
+              f"Masked by nullify (land pixels, share of each pixel's interferograms in loops): median "
+              f"{nf['median']:.1%}, 95th percentile {nf['p95']:.1%}; {nf['over_half']:.1%} of pixels lost more "
+              "than half. Effect against GNSS (Stage 6, 14 stations, median whole-series RMS, 1.5 rad run vs this "
+              "setting, compared on 2026-11-24): descending LOS "
+              "87 -> 20 mm, east-west 49 -> 28 mm, vertical 39 -> 31 mm. Near the dike the step is still not "
+              "recovered (see the known-unreliable values in Stage 4 and 6)."]
     L += ["", "### Re-referencing", "",
           "LiCSBAS steps 13 and 16 always re-reference `cum`/`vel` to an automatically chosen single "
           "pixel (lowest RMS of cum w.r.t. the median, `info/13ref.txt`), wherever it lies; the "

@@ -85,6 +85,16 @@ licsbas:
                                 # default = (ifgs without any loop in the network) + 1 = 1 here, which masked 21 % (asc)
                                 # / 39 % (desc) incl. the uplift centre, where only ~5 of ~3100 ifgs lack a loop;
                                 # 50 is the C-band value suggested in LiCSBAS15_mask_ts.py
+  # Per-frame step-12 settings (only loop_thre and nullify; steps 02-11 are shared by both frames).
+  frame_overrides:
+    155D_02484_191814:
+      loop_thre: 3.0            # at 1.5 rad step 12 rejected all 10 descending ifgs across the 10 Nov 2023 dike
+                                # (scene loop RMS 2-28 rad) and split the network at 20231110-20231122 and
+                                # 20231216-20240109. Their loop errors are at the dike (54-59 % of pixels fail
+                                # to close there, 3-4 % elsewhere); 3 rad keeps 7 + 5 ifgs across the two gaps
+                                # and still drops 48 (e.g. the 20231228 loops at 21+ rad)
+      nullify: true             # LiCSBAS12 --nullify: blank pixels whose loops all exceed pi, which removes the
+                                # dike-zone unwrapping errors of the ifgs that the higher threshold lets in
   filter:                       # step 16
     filtwidth_km: null
     filtwidth_yr: null
