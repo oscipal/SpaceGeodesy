@@ -20,6 +20,7 @@ Group project for Space Geodesy (ETH Zürich, Geomatics). The full task descript
 | 5a Viewer | `app` | `app/viewer.py` | done |
 | 5b Report figures | `figures` | `scripts/make_figures.py` | done |
 | 6 GNSS | `gnss` | `scripts/get_gnss.py` | done, 14 NGL stations, see [docs/processing_notes.md](docs/processing_notes.md) |
+| 7 Rates and pattern | `cycles` | `scripts/cycles.py` | done: uplift rates per cycle and in the pause (GNSS and InSAR), centre and extent of the uplift per cycle |
 
 `scripts/export_quicklook.py` renders a selection of single interferograms for a first look
 (see [Quick look](#quick-look)).
@@ -75,6 +76,7 @@ container:
 .\dc.ps1 make process   # Stage 3
 .\dc.ps1 make post      # Stage 4
 .\dc.ps1 make gnss      # Stage 6
+.\dc.ps1 make cycles    # Stage 7
 .\dc.ps1 bash           # shell inside the container
 ```
 
@@ -161,7 +163,8 @@ files over HTTP, so serve the folder, e.g. `python -m http.server`, rather than 
 | `results/frames/summary.json` | frame search results |
 | `results/licsbas/<frame>/` | LiCSBAS `cum.h5`, `cum_filt.h5`, result rasters (re-referenced) |
 | `results/cubes/`, `results/geotiff/` | NetCDF cubes and GeoTIFFs (Stage 4) |
-| `results/timeseries/`, `results/episodes.csv` | point time series and uplift per episode (Stage 4) |
+| `results/timeseries/`, `results/episodes.csv` | point time series (uplift centre, Grindavík, reference, extra points; GNSS stations from Stage 6) and uplift per episode (Stage 4) |
+| `results/cycles/rates.csv`, `pause_rates.csv`, `pattern.csv` | uplift rate per inflation period from GNSS and InSAR, rates in 60 day windows during the current pause, and centre, extent and shape correlation of the uplift per cycle (Stage 7, `scripts/cycles.py`) |
 | `results/gnss/` | NGL station list, series relative to REYK (ENU and LOS), InSAR comparison (Stage 6) |
 | `figures/qc/<frame>/` | LiCSBAS quality-control figures |
 | `docs/frames.md`, `docs/processing_notes.md` | per-stage summaries, written by the scripts |

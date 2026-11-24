@@ -144,3 +144,20 @@ gnss:
     window_days: 15
     k: 5
     protect_days: 10            # not tested after each dike or eruption (fast real motion)
+
+# --- Stage 7: rates per cycle and pattern stability (scripts/cycles.py) ------
+cycles:
+  since: 2023-10-27               # inflation onset before the first Sundhnukur dike (research question 1)
+  skip_days_after_event: 2        # a period starts this many days after a dike or eruption
+  min_days: 20                    # shorter periods get no rate / no pattern fit
+  min_coverage: 0.6               # GNSS: minimum fraction of days with data in a period
+  rate_stations: [HS02, SKSH, SENG]   # GNSS stations nearest the uplift centre with long records
+  early_periods:                  # context: the 2020 and 2022 uplift periods (InSAR epochs, episodes.csv)
+    - [2020-01-24, 2020-02-29, 2020 I]
+    - [2020-03-06, 2020-04-29, 2020 II]
+    - [2022-05-19, 2022-07-18, "2022"]
+  pause_window_days: 60           # current pause split into windows of this length
+  fit_radius_km: 7                # pattern fit: vertical displacement within this distance of the centre
+  pattern_outliers:               # cycles (first epoch) whose pattern fit is affected by other deformation
+    "2023-11-22": 24 days only, right after the 10 Nov 2023 dike; dike zone decorrelated (residual RMS 45 mm)
+    "2025-04-03": starts 2 days after the 1 Apr 2025 dike, which propagated north-east; displacement along it pulls the fit
