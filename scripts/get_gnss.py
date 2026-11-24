@@ -13,6 +13,7 @@
 5. Output per station results/gnss/<ID>.csv: date, east_mm, north_mm, up_mm (zero at the first
    day on or after the analysis start), 1-sigma, and the projection on the ascending and
    descending line of sight (LiCSBAS unit vectors at the station, + towards the satellite).
+   InSAR at each station (Stage 4 format) -> results/timeseries/gnss_<ID>.csv.
 6. Comparison at the InSAR epochs (3x3 pixel mean, same day GNSS): offset removed, RMS,
    correlation and trend of the difference -> results/gnss/comparison.csv.
 7. REYK check: linear velocity and residual transients in IGS20 over the analysis window.
@@ -256,6 +257,12 @@ def main() -> int:
         series[s] = rel
         print(f"  {s}: {len(rel)} days {rel.index[0]:%Y-%m-%d} to {rel.index[-1]:%Y-%m-%d}", flush=True)
 
+    # 5. InSAR point time series at the stations (same format as Stage 4's results/timeseries/)
+    import postprocess
+    pts = [{"name": f"gnss_{s}", "lat": sel.at[s, "lat"], "lon": sel.at[s, "lon"], "kind": "gnss"}
+           for s in ids if sel.at[s, "in_insar_area"]]
+    ts_files = postprocess.point_series(cfg, {"asc": cubes["asc"], "desc": cubes["desc"]}, cubes["dec"], pts)
+
     # 6. comparison with InSAR
     rows, inc_rows = [], []
     big_ev = ev[ev.type.isin(["dike", "eruption"]) & (ev.date >= t0)]
@@ -343,6 +350,9 @@ def main() -> int:
             continue
         L.append(f"| {r.station} | {r.dist_km} | {r.component} | {r.n} | {r['first']} – {r['last']} | "
                  f"{r.gnss_range_mm} | {r.rms_mm} | {r.r} | {r.trend_mm_yr} | {'yes' if r.insar_masked else ''} |")
+    L += ["", f"InSAR point time series at the {len(ts_files)} stations inside the InSAR area "
+          f"({cfg['postprocess']['ts_window_px']}x{cfg['postprocess']['ts_window_px']} px mean, same columns as "
+          "Stage 4): `results/timeseries/gnss_<ID>.csv`."]
     update_notes(cfg, "gnss", "\n".join(L))
     print(f"comparison: {len(cmp_df)} rows; reference {ref_id}: "
           + ", ".join(f"{k[:-3]} {rc[k]['velocity_mm_yr']} mm/yr" for k in ("east_mm", "north_mm", "up_mm")), flush=True)

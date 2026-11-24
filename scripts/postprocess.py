@@ -205,21 +205,26 @@ def window_mean(da: xr.DataArray, lat, lon, half: int) -> xr.DataArray:
 
 
 def points(cfg) -> list[dict]:
-    pts = [{"name": "svartsengi_uplift_centre", **cfg["sites"]["svartsengi_uplift_centre"], "kind": "site"}]
-    for s in cfg["gnss"].get("stations") or []:
-        if isinstance(s, dict) and "lat" in s:
-            pts.append({"name": f"gnss_{s['id']}", "lat": s["lat"], "lon": s["lon"], "kind": "gnss"})
+    """Uplift centre, Grindavik and the extra points from config.yaml. GNSS station series are
+    written by Stage 6 (get_gnss.py), which looks up the station coordinates in the NGL list."""
+    pts = [{"name": "svartsengi_uplift_centre", **cfg["sites"]["svartsengi_uplift_centre"], "kind": "site"},
+           {"name": "grindavik", **cfg["sites"]["grindavik"], "kind": "site"}]
+    rp = cfg["licsbas"].get("reference_point") or {}
+    if "lat" in rp:     # should stay near zero: a check of the re-referencing
+        pts.append({"name": "reference_straumsvik", "lat": rp["lat"], "lon": rp["lon"], "kind": "reference"})
     for p in cfg["postprocess"].get("extra_points") or []:
         pts.append({**p, "kind": "extra"})
     return pts
 
 
-def point_series(cfg, frames: dict, dec: xr.Dataset | None) -> list[Path]:
+def point_series(cfg, frames: dict, dec: xr.Dataset | None, pts: list[dict] | None = None) -> list[Path]:
+    """results/timeseries/<name>.csv: LOS (asc, desc; unfiltered and filtered) and vertical/east,
+    window mean of ts_window_px^2 pixels, for pts (default: points(cfg))."""
     half = cfg["postprocess"]["ts_window_px"] // 2
     out = path(cfg, "results") / "timeseries"
     out.mkdir(exist_ok=True)
     files = []
-    for p in points(cfg):
+    for p in pts if pts is not None else points(cfg):
         cols = []
         for geom, ds in frames.items():
             for v in ("cum", "cum_filt"):
@@ -228,7 +233,7 @@ def point_series(cfg, frames: dict, dec: xr.Dataset | None) -> list[Path]:
         if dec is not None:
             for v in ("up", "up_filt", "east", "east_filt"):
                 cols.append(window_mean(dec[v], p["lat"], p["lon"], half).to_series().rename(f"{v}_mm"))
-        df = pd.concat(cols, axis=1).sort_index()
+        df = pd.concat(cols, axis=1, sort=True)
         df.index.name = "date"
         f = out / f"{p['name']}.csv"
         df.to_csv(f, float_format="%.2f")
