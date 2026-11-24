@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from common import load_config, path, update_notes
+from common import COMPONENT_ALIASES, load_config, path, reliability, update_notes
 
 
 # ------------------------------------------------------------------ loading
@@ -261,14 +261,19 @@ def episodes(cfg, centre_csv: Path) -> pd.DataFrame:
             ta, tb = a.index[0], b.index[-1]
             d = float(b.iloc[-1] - a.iloc[0])
             days = (tb - ta).days
+            sig = float(cfg["postprocess"]["episode_sigma_mm"][COMPONENT_ALIASES[label]])
             rows.append({"episode": k + 1, "start_event": f"{t0.date()} {ev.loc[k, 'type']} ({ev.loc[k, 'location']})",
                          "end_event": f"{t1.date()} {ev.loc[k + 1, 'type']} ({ev.loc[k + 1, 'location']})",
                          "component": label, "first_epoch": ta.date(), "last_epoch": tb.date(), "days": days,
                          "displacement_mm": round(d, 1),
-                         "rate_mm_per_day": round(d / days, 2) if days > 0 else np.nan})
+                         "rate_mm_per_day": round(d / days, 2) if days > 0 else np.nan,
+                         "displacement_sigma_mm": sig,
+                         "rate_sigma_mm_per_day": round(sig / days, 2) if days > 0 else np.nan,
+                         "reliability": reliability(cfg, ta, tb, label)})
     df = pd.DataFrame(rows)
     df.to_csv(path(cfg, "results") / "episodes.csv", index=False)
     return df
+
 
 
 # ---------------------------------------------------------------------- main
@@ -306,11 +311,16 @@ def main() -> int:
          f"- Episodes at the uplift centre: `results/episodes.csv` ({len(vert)} vertical, {len(ep) - len(vert)} "
          "LOS rows). Displacement between the first acquisition after an event and the last before the next "
          "event, from unfiltered cum.", ""]
+    reasons = sorted({x for s in ep.reliability.fillna("") for x in s.split(" | ") if x})
+    mark = lambda s: " ".join(f"[u{reasons.index(x) + 1}]" for x in s.split(" | ") if x)  # noqa: E731
     if not vert.empty:
-        L += ["| Episode | from | to | days | vertical (mm) | mm/day |", "|---|---|---|---|---|---|"]
+        L += ["| Episode | from | to | days | vertical (mm) | mm/day | reliability |", "|---|---|---|---|---|---|---|"]
         for _, r in vert.iterrows():
             L.append(f"| {r.episode} | {r.start_event} | {r.end_event} | {r.days} | {r.displacement_mm} | "
-                     f"{r.rate_mm_per_day} |")
+                     f"{r.rate_mm_per_day} | {mark(r.reliability)} |")
+    if reasons:
+        L += ["", "Known-unreliable values (`postprocess.unreliable` in config.yaml; also the `reliability` "
+              "column of the CSV files):", ""] + [f"- [u{i + 1}] {x}" for i, x in enumerate(reasons)]
     update_notes(cfg, "postprocess", "\n".join(L))
     return 0
 

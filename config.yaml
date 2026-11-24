@@ -104,6 +104,29 @@ postprocess:
   ts_window_px: 3               # averaging window for point time series
   extra_points: []              # [{name: ..., lat: ..., lon: ...}]
   events_csv: config/events.csv
+  # 1-sigma of an episode displacement at a point (mm): RMS of InSAR minus GNSS over the same
+  # episode intervals at 11 stations, known-unreliable pairs excluded (Stage 6, 2026-11-24);
+  # rate sigma = displacement sigma / episode length.
+  episode_sigma_mm: {up: 20, los_asc: 16, los_desc: 15}
+  # Known-unreliable values, written as a "reliability" column into results/episodes.csv,
+  # results/gnss/{comparison,increments}.csv.
+  # Components: up, east, los_asc, los_desc (episodes' vertical / LOS asc / LOS desc map to these).
+  unreliable:
+    - epochs_between: [2023-12-18, 2024-01-14]     # an interval with an end epoch strictly inside
+      components: [up, east, los_desc]
+      reason: >-
+        descending epochs between the 18 Dec 2023 and 14 Jan 2024 eruptions rest on few interferograms
+        (network gap 20231216-20240109 before the step-12 change; 20231228 loops > 21 rad)
+    - spans_event: 2023-11-10                       # an interval (or a whole series) containing the event
+      stations:
+        HS02: [up, east, los_desc]
+        SKSH: [up, east, los_desc]
+        SENG: [up, east, los_desc, los_asc]
+        FEFC: [up, east, los_desc]
+        SUDV: [up, east, los_desc]
+      reason: >-
+        10 Nov 2023 dike step not recovered near the dike: InSAR and GNSS differ by 350-760 mm in
+        descending LOS (SENG also 180 mm ascending); fringes too dense / decorrelated at 0.001 deg pixels
 
 # --- GNSS (Stage 6) --------------------------------------------------------------
 gnss:

@@ -107,6 +107,28 @@ def update_notes(cfg: dict, section: str, body: str) -> None:
     f.write_text(text, encoding="utf-8")
 
 
+COMPONENT_ALIASES = {"vertical": "up", "LOS asc": "los_asc", "LOS desc": "los_desc"}
+
+
+def reliability(cfg: dict, t0, t1, component: str, station: str | None = None) -> str:
+    """Reasons from postprocess.unreliable that apply to the interval t0-t1 of a component
+    (at a GNSS station, if given); "" when none applies."""
+    comp = COMPONENT_ALIASES.get(component, component)
+    day = lambda x: x.date() if isinstance(x, dt.datetime) else _to_date(x)  # noqa: E731 (also pd.Timestamp)
+    t0, t1 = day(t0), day(t1)
+    out = []
+    for r in cfg["postprocess"].get("unreliable") or []:
+        if "epochs_between" in r:
+            a, b = (day(x) for x in r["epochs_between"])
+            hit = comp in r["components"] and any(a < t < b for t in (t0, t1))
+        else:
+            e = day(r["spans_event"])
+            hit = station is not None and comp in (r["stations"].get(station) or []) and t0 <= e < t1
+        if hit:
+            out.append(" ".join(r["reason"].split()))
+    return " | ".join(out)
+
+
 def aoi_box(cfg: dict):
     from shapely.geometry import box
 

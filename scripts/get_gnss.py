@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from common import load_config, path, update_notes
+from common import load_config, path, reliability, update_notes
 
 NGL = "https://geodesy.unr.edu"
 HOLDINGS = f"{NGL}/NGLStationPages/DataHoldings.txt"
@@ -315,7 +315,8 @@ def main() -> int:
             ins = viz.window_series(cubes[cube], var, la, lo, 1)
             r = compare(ins, df[col])
             rows.append({"station": s, "component": name, "dist_km": sel.at[s, "dist_km"],
-                         "insar_masked": masked, "coh_avg_asc": round(coh, 2), **r})
+                         "insar_masked": masked, "coh_avg_asc": round(coh, 2), **r,
+                         "reliability": reliability(cfg, r["first"], r["last"], name, s) if "first" in r else ""})
             win = [("event", f"{e.date:%Y-%m-%d} {e.type} ({e.location})", e.date - pd.Timedelta(days=1),
                     e.date + pd.Timedelta(days=1)) for e in big_ev.itertuples()]
             epc = EP_COMP.get(name)
@@ -323,7 +324,8 @@ def main() -> int:
                 win += [("episode", f"{r_.start_event} to {r_.end_event}", r_.first_epoch, r_.last_epoch)
                         for r_ in episodes[episodes.component == epc].itertuples()]
             for x in increments(ins, df[col], win):
-                inc_rows.append({"station": s, "dist_km": sel.at[s, "dist_km"], "component": name, **x})
+                inc_rows.append({"station": s, "dist_km": sel.at[s, "dist_km"], "component": name, **x,
+                                 "reliability": reliability(cfg, x["t0"], x["t1"], name, s)})
     cmp_df = pd.DataFrame(rows)
     cmp_df.to_csv(out / "comparison.csv", index=False)
     inc = pd.DataFrame(inc_rows)
@@ -372,25 +374,36 @@ def main() -> int:
     L += ["", "Change between the same two InSAR epochs, InSAR minus GNSS (3x3 pixel mean; GNSS on the same "
           "days). 'episode' = the inflation episodes of results/episodes.csv, 'event' = last epoch before to first "
           "epoch after a dike or eruption:", "",
-          "| Component | Kind | Pairs | Median GNSS change (mm) | Median abs. difference (mm) | RMS difference (mm) |",
-          "|---|---|---|---|---|---|"]
+          "| Component | Kind | Pairs | Median GNSS change (mm) | Median abs. difference (mm) | RMS difference (mm) "
+          "| Pairs / RMS without known-unreliable (mm) |",
+          "|---|---|---|---|---|---|---|"]
     for (comp_, kind), x in inc.groupby(["component", "kind"]):
+        ok = x[x.reliability == ""]
         L.append(f"| {comp_} | {kind} | {len(x)} | {x.gnss_mm.abs().median():.0f} | {x.diff_mm.abs().median():.0f} | "
-                 f"{np.sqrt((x.diff_mm ** 2).mean()):.0f} |")
+                 f"{np.sqrt((x.diff_mm ** 2).mean()):.0f} | {len(ok)} / {np.sqrt((ok.diff_mm ** 2).mean()):.0f} |")
+    reasons = sorted({y for s_ in pd.concat([inc.reliability, cmp_df.reliability]) for y in s_.split(" | ") if y})
+    mark = lambda s_: " ".join(f"[u{reasons.index(y) + 1}]" for y in s_.split(" | ") if y)  # noqa: E731
     worst = inc[inc.kind == "event"].reindex(inc[inc.kind == "event"].diff_mm.abs().sort_values(ascending=False).index).head(8)
-    L += ["", "Largest event differences:", "", "| Station | Component | Event | InSAR (mm) | GNSS (mm) | Difference (mm) |",
-          "|---|---|---|---|---|---|"]
+    L += ["", "Largest event differences:", "",
+          "| Station | Component | Event | InSAR (mm) | GNSS (mm) | Difference (mm) | Known unreliable |",
+          "|---|---|---|---|---|---|---|"]
     for _, r in worst.iterrows():
-        L.append(f"| {r.station} | {r.component} | {r.label} | {r.insar_mm} | {r.gnss_mm} | {r.diff_mm} |")
+        L.append(f"| {r.station} | {r.component} | {r.label} | {r.insar_mm} | {r.gnss_mm} | {r.diff_mm} | "
+                 f"{mark(r.reliability)} |")
     L += ["", "Whole series, InSAR minus GNSS at the InSAR epochs, median offset removed (affected by GNSS gaps "
           "spanning large events, e.g. SKSH Sep 2023 - 2025); trend = linear trend of the difference:", "",
-          "| Station | km | Component | Epochs | Period | GNSS range (mm) | RMS (mm) | r | Trend (mm/yr) | Masked |",
-          "|---|---|---|---|---|---|---|---|---|---|"]
+          "| Station | km | Component | Epochs | Period | GNSS range (mm) | RMS (mm) | r | Trend (mm/yr) | Masked "
+          "| Known unreliable |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"]
     for _, r in cmp_df.iterrows():
         if r.get("n", 0) < 5 or pd.isna(r.get("rms_mm")):
             continue
         L.append(f"| {r.station} | {r.dist_km} | {r.component} | {r.n} | {r['first']} – {r['last']} | "
-                 f"{r.gnss_range_mm} | {r.rms_mm} | {r.r} | {r.trend_mm_yr} | {'yes' if r.insar_masked else ''} |")
+                 f"{r.gnss_range_mm} | {r.rms_mm} | {r.r} | {r.trend_mm_yr} | {'yes' if r.insar_masked else ''} | "
+                 f"{mark(r.reliability)} |")
+    if reasons:
+        L += ["", "Known-unreliable values (`postprocess.unreliable` in config.yaml; `reliability` column of "
+              "comparison.csv and increments.csv):", ""] + [f"- [u{i + 1}] {y}" for i, y in enumerate(reasons)]
     L += ["", f"InSAR point time series at the {len(ts_files)} stations inside the InSAR area "
           f"({cfg['postprocess']['ts_window_px']}x{cfg['postprocess']['ts_window_px']} px mean, same columns as "
           "Stage 4): `results/timeseries/gnss_<ID>.csv`."]
