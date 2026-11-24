@@ -428,6 +428,130 @@ def fig_episode_uplift(cfg, cubes, out):
     save(fig, out, "fig7_episodes_uplift")
 
 
+RATE_STYLE = {"insar_centre_up": ("InSAR, uplift centre", viz.INK, "-"),
+              "gnss_HS02_up": ("GNSS HS02 (0.8 km)", viz.ASC, "-"),
+              "gnss_SKSH_up": ("GNSS SKSH (1.1 km)", viz.ASC, "--"),
+              "gnss_SENG_up": ("GNSS SENG (2.2 km)", viz.ASC, ":")}
+
+
+def draw_rates(ax, cfg, lw=1.2, band=True):
+    """Vertical uplift rate per inflation period (horizontal segments, +-1 sigma band) and in the
+    windows of the current pause, from results/cycles/ (scripts/cycles.py)."""
+    d = path(cfg, "results") / "cycles"
+    per = pd.read_csv(d / "rates.csv", parse_dates=["start", "end"])
+    per = per[per.start >= pd.Timestamp(cfg["cycles"]["since"])]
+    pause = pd.read_csv(d / "pause_rates.csv", parse_dates=["window_start", "window_end"])
+    p0 = pause.window_start.min()
+    per = per[~per.open.astype(bool)]                          # the open period is shown as pause windows
+    for key, (lab, col, ls) in RATE_STYLE.items():
+        if f"{key}_rate" not in per:
+            continue
+        first = True
+        for a, b, r, s in list(zip(per.start, per.end, per[f"{key}_rate"], per[f"{key}_sigma"])) + \
+                list(zip(pause.window_start, pause.window_end, pause[f"{key}_rate"], pause[f"{key}_sigma"])):
+            if not np.isfinite(r):
+                continue
+            ax.plot([a, b], [r, r], ls, color=col, lw=lw, label=lab if first else None, zorder=3)
+            if band:
+                ax.fill_between([a, b], r - s, r + s, color=col, alpha=0.15, lw=0, zorder=2)
+            first = False
+    key = "insar_centre_los_asc"
+    first = True
+    for a, b, r, s in zip(pause.window_start, pause.window_end, pause[f"{key}_rate"], pause[f"{key}_sigma"]):
+        if np.isfinite(r) and a > pd.Timestamp("2026-01-01"):
+            ax.plot([a, b], [r, r], "-", color=viz.MUTED, lw=lw, label="InSAR, centre, ascending LOS" if first else None,
+                    zorder=3)
+            first = False
+    ev = viz.load_events(cfg)
+    for e in ev[(ev.date >= pd.Timestamp(cfg["cycles"]["since"])) & ev.type.isin(["dike", "eruption"])].date:
+        ax.axvline(e, color=viz.EVENT_COLOURS["Sundhnukur"], lw=0.6, alpha=0.5, zorder=0)
+    ax.axvline(p0, color=viz.INK2, lw=0.8, ls="--", zorder=1)
+    ax.axhline(0, color=viz.INK2, lw=0.5)
+    return p0
+
+
+def fig_rates(cfg, cubes, out):
+    fig, ax = plt.subplots(figsize=(FULL, 2.4))
+    p0 = draw_rates(ax, cfg)
+    ax.text(p0 + pd.Timedelta(days=8), 7.5, "pause: no eruption since\nthe end of the July 2025 eruption,\n60 day windows",
+            fontsize=6.5, va="top", color=viz.INK2)
+    ax.set_ylabel("Uplift rate (mm/day)")
+    ax.set_ylim(-0.5, 12.5)
+    ax.grid(axis="y", color="#e4e2dc", lw=0.5)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.legend(loc="upper left", bbox_to_anchor=(0.2, 1.02), frameon=False, ncol=2, fontsize=6.5)
+    save(fig, out, "fig_rates")
+
+
+def draw_pattern(ax, cfg, ms=4, lw=1.0):
+    """Half maximum ellipses and centres (+-1 sigma) of the fitted uplift per cycle since the
+    October 2023 onset (results/cycles/pattern.csv), coloured by time; dashed = cycles whose fit
+    is affected by other deformation (cycles.pattern_outliers in config.yaml)."""
+    pat = pd.read_csv(path(cfg, "results") / "cycles" / "pattern.csv")
+    pat = pat[(pat.fit == "ok") & pat.resolved.astype(bool)].copy()
+    pat["t"] = pd.to_datetime(pat.first_epoch)
+    kx = 111.32 * np.cos(np.radians(63.87))
+    cmap = cmc.batlow
+    t0, t1 = pat.t.min(), pat.t.max()
+    odd = {str(k) for k in cfg["cycles"].get("pattern_outliers", {})}
+    ph = np.linspace(0, 2 * np.pi, 100)
+    for r in pat.itertuples():
+        col = cmap(0.9 * (r.t - t0) / (t1 - t0))
+        dashed = r.first_epoch in odd
+        az = np.radians(r.azimuth_deg)                   # major axis, clockwise from north
+        u, v = r.half_max_major_km * np.cos(ph), r.half_max_minor_km * np.sin(ph)
+        e, n = u * np.sin(az) + v * np.cos(az), u * np.cos(az) - v * np.sin(az)
+        ax.plot(r.lon + e / kx, r.lat + n / 111.32, "--" if dashed else "-", color=col, lw=lw, zorder=3)
+        ax.errorbar(r.lon, r.lat, xerr=r.east_sigma_m / 1000 / kx, yerr=r.north_sigma_m / 1000 / 111.32,
+                    fmt="o", ms=ms, mfc="white" if dashed else col, color=col, mec=col, mew=1.0,
+                    elinewidth=0.8, zorder=5)
+    return pat, cmap, t0, t1
+
+
+def fig_pattern(cfg, cubes, out):
+    """(a) Map of the fitted uplift centres and half maximum ellipses per cycle; (b) offset of the
+    centre from the nominal centre, half maximum axes and shape correlation per cycle."""
+    fig = plt.figure(figsize=(FULL, 2.6))
+    ax = fig.add_axes([0.0, 0.1, 0.46, 0.82])
+    background(ax, cfg)
+    pat, cmap, t0, t1 = draw_pattern(ax, cfg)
+    map_axes(ax, cfg, zoom={"lon": (-22.585, -22.32), "lat": (63.828, 63.912)})
+    ax.set_title("(a) Uplift centre and half maximum ellipse per cycle", loc="left")
+    odd = {str(k) for k in cfg["cycles"].get("pattern_outliers", {})}
+    lab = lambda r: r.cycle.replace(" (open)", "*")  # noqa: E731
+    gs = fig.add_gridspec(3, 1, left=0.57, right=0.99, bottom=0.12, top=0.92, hspace=0.15)
+    b = [fig.add_subplot(gs[k]) for k in range(3)]
+    x = np.arange(len(pat))
+    cols = [cmap(0.9 * (t - t0) / (t1 - t0)) for t in pat.t]
+    for k, r in enumerate(pat.itertuples()):
+        m = dict(mfc="white" if r.first_epoch in odd else cols[k], mec=cols[k], color=cols[k], ms=4, elinewidth=0.8)
+        b[0].errorbar(k - 0.12, r.east_offset_m, r.east_sigma_m, fmt="s", **m)
+        b[0].errorbar(k + 0.12, r.north_offset_m, r.north_sigma_m, fmt="o", **m)
+        b[1].errorbar(k, r.half_max_major_km, r.axis_sigma_km, fmt="o", **m)
+        b[1].errorbar(k, r.half_max_minor_km, r.axis_sigma_km, fmt="v", **m)
+        b[2].plot(k, r.corr_with_others, "o", **{q: m[q] for q in ("mfc", "mec", "ms")})
+    b[0].set_ylabel("Offset (m)")
+    b[0].legend([plt.Line2D([], [], marker=s, ls="", color=viz.INK2, ms=4) for s in "so"], ["east", "north"],
+                loc="upper center", bbox_to_anchor=(0.5, 1.08), frameon=False, ncol=2, fontsize=6.5, handletextpad=0.1)
+    b[1].set_ylabel("Axes (km)")
+    b[1].set_ylim(1.8, 5.6)
+    b[0].set_ylim(-1000, 2400)
+    b[1].legend([plt.Line2D([], [], marker=s, ls="", color=viz.INK2, ms=4) for s in "ov"], ["major", "minor"],
+                loc="upper center", bbox_to_anchor=(0.5, 1.08), frameon=False, ncol=2, fontsize=6.5, handletextpad=0.1)
+    b[2].set_ylabel("Shape corr.")
+    b[2].set_ylim(0.5, 1.02)
+    b[0].set_title("(b) Centre, extent and shape per cycle", loc="left")
+    for a in b:
+        a.set_xticks(x)
+        a.set_xticklabels([lab(r) if a is b[2] else "" for r in pat.itertuples()], rotation=40, ha="right",
+                          fontsize=6.5)
+        a.grid(axis="y", color="#e4e2dc", lw=0.5)
+        a.spines[["top", "right"]].set_visible(False)
+        a.set_xlim(-0.5, len(pat) - 0.5)
+    b[0].axhline(0, color=viz.INK2, lw=0.5)
+    save(fig, out, "fig_pattern")
+
+
 def anim_vertical(cfg, cubes, out, fps=8):
     """Animated GIF: vertical displacement since the first epoch, one frame per acquisition,
     fixed colour scale (viz.fixed_limits, same as the viewer), with the uplift-centre series."""
@@ -491,7 +615,7 @@ def anim_vertical(cfg, cubes, out, fps=8):
 
 FIGS = {"study_area": fig_study_area, "los_velocity": fig_los_velocity, "decomp_velocity": fig_decomp_velocity,
         "episodes_maps": fig_episode_maps, "episodes_maps_short": fig_episode_maps_short, "centre_timeseries": fig_centre,
-        "gnss_comparison": fig_gnss,
+        "gnss_comparison": fig_gnss, "rates": fig_rates, "pattern": fig_pattern,
         "episodes_uplift": fig_episode_uplift, "anim_vertical": anim_vertical}
 
 
